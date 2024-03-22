@@ -197,9 +197,9 @@ __do_fork (void *aux) {
 
 	process_init ();
 
+    sema_up(&curr->load_sema);                        //* fork
 	/* Finally, switch to the newly created process. */
 	if (succ)
-    sema_up(&curr->load_sema);                        //* fork
 		do_iret (&if_);
 
 error:
