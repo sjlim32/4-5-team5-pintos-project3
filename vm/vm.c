@@ -3,6 +3,7 @@
 #include "threads/malloc.h"
 #include "vm/vm.h"
 #include "vm/inspect.h"
+#include "include/threads/mmu.h"
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -62,19 +63,32 @@ err:
 
 /* Find VA from spt and return page. On error, return NULL. */
 struct page *
-spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
-	struct page *page = NULL;
+spt_find_page (struct supplemental_page_table *spt, void *va) {
+	struct page 		*page = NULL;
+	struct hash_elem 	*temp_elem;
+	struct hash			temp_hash = spt->spt_hash;
 	/* TODO: Fill this function. */
+	uint64_t key = hash_bytes(va, sizeof va);
+
+	if(hash_empty(&temp_hash))
+		return page;
+
+	temp_elem = &temp_hash.buckets[key];
+	page = hash_find(&temp_hash, temp_elem);
 
 	return page;
 }
 
 /* Insert PAGE into spt with validation. */
 bool
-spt_insert_page (struct supplemental_page_table *spt UNUSED,
-		struct page *page UNUSED) {
+spt_insert_page (struct supplemental_page_table *spt, struct page *page) {
 	int succ = false;
+	struct hash_elem *result_elem;
 	/* TODO: Fill this function. */
+	result_elem = hash_insert(&spt->spt_hash, &page->hash_elem);
+
+	if(result_elem)
+		succ = true;
 
 	return succ;
 }
@@ -111,7 +125,10 @@ vm_evict_frame (void) {
 static struct frame *
 vm_get_frame (void) {
 	struct frame *frame = NULL;
+
 	/* TODO: Fill this function. */
+	frame = palloc_get_page(PAL_USER);
+	if(!frame) PANIC("Todo");				// swap function
 
 	ASSERT (frame != NULL);
 	ASSERT (frame->page == NULL);
@@ -150,9 +167,10 @@ vm_dealloc_page (struct page *page) {
 
 /* Claim the page that allocate on VA. */
 bool
-vm_claim_page (void *va UNUSED) {
+vm_claim_page (void *va) {
 	struct page *page = NULL;
 	/* TODO: Fill this function */
+	
 
 	return vm_do_claim_page (page);
 }
@@ -167,13 +185,31 @@ vm_do_claim_page (struct page *page) {
 	page->frame = frame;
 
 	/* TODO: Insert page table entry to map page's VA to frame's PA. */
+	frame->kva = page->va;
 
 	return swap_in (page, frame->kva);
 }
 
 /* Initialize new supplemental page table */
 void
-supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
+supplemental_page_table_init (struct supplemental_page_table *spt) {
+	hash_init(&spt->spt_hash, page_hash_function, page_compare_va, NULL);
+}
+
+unsigned
+page_hash_function(const struct hash_elem *h_elem, void *aux UNUSED)
+{
+	struct page *page = hash_entry(h_elem, struct page, hash_elem);
+	return hash_byte(page->va, sizeof page->va);
+}
+
+bool
+page_compare_va(const struct hash_elem *a, const struct hash_elem *b, void *aux UNUSED)
+{
+	struct page *page_a = hash_entry(a, struct page, hash_elem);
+	struct page *page_b = hash_entry(b, struct page, hash_elem);
+
+	return page_a->va < page_b->va;
 }
 
 /* Copy supplemental page table from src to dst */
@@ -187,4 +223,6 @@ void
 supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
 	/* TODO: Destroy all the supplemental_page_table hold by thread and
 	 * TODO: writeback all the modified contents to the storage. */
+
+	hash_clear(spt, /* function? */page_compare_va);
 }
