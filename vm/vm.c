@@ -38,6 +38,9 @@ static struct frame *vm_get_victim (void);
 static bool vm_do_claim_page (struct page *page);
 static struct frame *vm_evict_frame (void);
 
+static uint64_t get_offset(void *);
+static void set_offset(int *, int *);
+
 /* Create the pending page object with initializer. If you want to create a
  * page, do not create it directly and make it through this function or
  * `vm_alloc_page`. */
@@ -127,8 +130,10 @@ vm_get_frame (void) {
 	struct frame *frame = NULL;
 
 	/* TODO: Fill this function. */
-	frame = palloc_get_page(PAL_USER);
+	frame = calloc(sizeof(struct frame), 1);
 	if(!frame) PANIC("Todo");				// swap function
+	
+	frame->kva = palloc_get_page(PAL_USER | PAL_ZERO);
 
 	ASSERT (frame != NULL);
 	ASSERT (frame->page == NULL);
@@ -170,7 +175,10 @@ bool
 vm_claim_page (void *va) {
 	struct page *page = NULL;
 	/* TODO: Fill this function */
-	
+	page = calloc(sizeof(struct page), 1);
+	if(!page) return false;
+
+	page->va = va;
 
 	return vm_do_claim_page (page);
 }
@@ -184,10 +192,24 @@ vm_do_claim_page (struct page *page) {
 	frame->page = page;
 	page->frame = frame;
 
+	// if(frame->kva)     // anonymous or file_backed 구분
+
 	/* TODO: Insert page table entry to map page's VA to frame's PA. */
-	frame->kva = page->va;
+	set_offset(frame->kva, page->va);
 
 	return swap_in (page, frame->kva);
+}
+
+static void
+set_offset(int *kva, int *va)
+{
+	kva = (uint64_t)kva | get_offset(va);
+}
+
+static uint64_t
+get_offset(void *va)
+{
+	return (uint64_t)va & 0xfff;
 }
 
 /* Initialize new supplemental page table */
