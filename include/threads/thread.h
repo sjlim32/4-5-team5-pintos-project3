@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include "threads/interrupt.h"
 #include "threads/synch.h"
+#include "threads/vaddr.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -30,8 +31,8 @@ typedef int tid_t;
 #define PRI_MAX 63                      /* Highest priority. */
 
 /* --- Project 2 : System call --- */
-#define FDT_PAGES 5
-#define FD_COUNT_LIMIT FDT_PAGES *(1<<9)
+#define FDT_PAGES 3
+#define FD_COUNT_LIMIT (FDT_PAGES * PGSIZE)
 
 /* A kernel thread or user process.
  *

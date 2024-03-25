@@ -13,4 +13,9 @@ void process_activate (struct thread *next);
 /* Project 2 - Argument Passing */
 static void argument_passing (struct intr_frame *if_, int argv_cnt, char **argv_list);
 
+typedef struct file_info {
+	struct file* file;
+	uint32_t read_bytes;
+} file_info;
+
 #endif /* userprog/process.h */

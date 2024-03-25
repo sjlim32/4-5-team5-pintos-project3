@@ -139,7 +139,6 @@ page_fault (struct intr_frame *f) {
 	   be assured of reading CR2 before it changed). */
 	intr_enable ();
 
-  exit(-1);                       //* exit
 	/* Determine cause. */
 	not_present = (f->error_code & PF_P) == 0;
 	write = (f->error_code & PF_W) != 0;
@@ -147,10 +146,11 @@ page_fault (struct intr_frame *f) {
 
 #ifdef VM
 	/* For project 3 and later. */
-	if (vm_try_handle_fault (f, fault_addr, user, write, not_present))
+	if (vm_try_handle_fault (f, fault_addr, user, write, not_present)) {
+		// 정당한 page fault, 처리해줘야 함.
 		return;
+	}
 #endif
-
 	/* Count page faults. */
 	page_fault_cnt++;
 
@@ -160,7 +160,8 @@ page_fault (struct intr_frame *f) {
 			not_present ? "not present" : "rights violation",
 			write ? "writing" : "reading",
 			user ? "user" : "kernel");
-	kill (f);
+	// kill (f);
+	exit (-1);
 }
 
 //! ------------------------------ Project 2 ------------------------------ !//

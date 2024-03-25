@@ -42,6 +42,9 @@ uninit_new (struct page *page, void *va, vm_initializer *init,
 	};
 }
 
+/* 첫 번째 page fault에 대한 페이지를 초기화합니다.
+ * 템플릿 코드는 먼저 vm_initializer와 aux를 가져오고 함수 포인터를 통해 해당 page_initializer를 호출합니다.
+ * 설계에 따라 함수를 수정해야 할 수도 있습니다. */
 /* Initalize the page on first fault */
 static bool
 uninit_initialize (struct page *page, void *kva) {
@@ -56,6 +59,10 @@ uninit_initialize (struct page *page, void *kva) {
 		(init ? init (page, aux) : true);
 }
 
+/* 페이지가 보유한 리소스를 해제합니다.
+ * 페이지 유형을 확인하고 적절하게 처리해야 할 수 있습니다.
+ * 익명 페이지에 대해서만 처리하면 됩니다.
+ * 나중에 이 함수를 수정하여 파일 백업 페이지를 정리합니다. */
 /* Free the resources hold by uninit_page. Although most of pages are transmuted
  * to other page objects, it is possible to have uninit pages when the process
  * exit, which are never referenced during the execution.
