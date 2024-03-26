@@ -23,7 +23,7 @@
 #include "userprog/syscall.h"
 #endif
 #ifdef VM
-#include "vm/vm.h"
+#include "include/vm/vm.h"
 #endif
 
 #define ARG_MAX 128                           //* Project 2 (args_passing) : strtok_r로 잘라줄 최대값
@@ -36,6 +36,13 @@ static void __do_fork (void *);
 /* --- Project 2 - System call --- */
 static void argument_passing (struct intr_frame *if_, int argv_cnt, char **argv_list);
 static struct thread *get_child (int tid);
+
+typedef struct file_info
+{
+	struct file *file;
+	size_t page_read_bytes;
+	off_t off;
+};
 
 /* General process initializer for initd and other process. */
 static void
@@ -172,8 +179,8 @@ __do_fork (void *aux) {
 
   process_activate (curr);
 #ifdef VM
-	supplemental_page_table_init (&current->spt);
-	if (!supplemental_page_table_copy (&current->spt, &parent->spt))
+	supplemental_page_table_init (&curr->spt);
+	if (!supplemental_page_table_copy (&curr->spt, &parent->spt))
 		goto error;
 #else
 	if (!pml4_for_each (parent->pml4, duplicate_pte, parent))
@@ -244,6 +251,9 @@ process_exec (void *f_name) {
 	/* And then load the binary */
   success = load (file_name, &_if);
 
+  if(!success)
+	return -1;
+
   argument_passing (&_if, idx, argv);             //* 분리한 명령어들을 User Stack에 쌓기 위한 함수
 	/* If load failed, quit. */
 	palloc_free_page (file_name);
@@ -295,6 +305,8 @@ argument_passing (struct intr_frame *if_, int argv_cnt, char **argv_list) {
   /* rdi = nums of argument, rsi = start addr, 인자의 숫자와 시작 주소 반환 */
   if_->R.rdi = argv_cnt;
   if_->R.rsi = if_->rsp + _ptr;
+
+//   printf("argument passing\n");
 }
 
 /* Waits for thread TID to die and returns its exit status.  If
@@ -714,10 +726,28 @@ install_page (void *upage, void *kpage, bool writable) {
  * upper block. */
 
 static bool
-lazy_load_segment (struct page *page, void *aux) {
+lazy_load_segment (struct page *page, void *file) {
 	/* TODO: Load the segment from the file */
 	/* TODO: This called when the first page fault occurs on address VA. */
 	/* TODO: VA is available when calling this function. */
+
+	// printf("#########################lazy_load_segment#######################\n");
+	
+	struct file_info *f_info = (struct file_info *)file;
+	struct file *temp_file = f_info->file;
+	size_t page_read_bytes = f_info->page_read_bytes;
+
+	uint8_t *kpage = (uint8_t *)page->frame->kva;
+
+	file_seek(temp_file, f_info->off);
+
+	if (file_read (temp_file, kpage, page_read_bytes) != (uint64_t)page_read_bytes) {
+		palloc_free_page (kpage);
+		return false;
+	}
+
+	// printf("###########\n");
+	return true;
 }
 
 /* Loads a segment starting at offset OFS in FILE at address
@@ -741,6 +771,8 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 	ASSERT (pg_ofs (upage) == 0);
 	ASSERT (ofs % PGSIZE == 0);
 
+	// printf("#########################%s#######################\n", "load_segment");
+
 	while (read_bytes > 0 || zero_bytes > 0) {
 		/* Do calculate how to fill this page.
 		 * We will read PAGE_READ_BYTES bytes from FILE
@@ -748,16 +780,25 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
 		size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
+
+		struct file_info *f_info = (struct file_info *)malloc(sizeof(struct file_info));
+		if(!f_info)
+			return false;
+
+		f_info->file = file;
+		f_info->page_read_bytes = page_read_bytes;
+		f_info->off = ofs;
+		// printf("load_segment page_read_bytes: %d, zero_bytes: %d\n", page_read_bytes, zero_bytes);
 		/* TODO: Set up aux to pass information to the lazy_load_segment. */
-		void *aux = NULL;
-		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
-					writable, lazy_load_segment, aux))
+		void *aux = f_info;
+		if (!vm_alloc_page_with_initializer (VM_ANON, upage, writable, lazy_load_segment, aux))
 			return false;
 
 		/* Advance. */
 		read_bytes -= page_read_bytes;
 		zero_bytes -= page_zero_bytes;
 		upage += PGSIZE;
+		ofs += page_read_bytes;
 	}
 	return true;
 }
@@ -765,14 +806,23 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 /* Create a PAGE of stack at the USER_STACK. Return true on success. */
 static bool
 setup_stack (struct intr_frame *if_) {
+	// printf("#########################%s#######################\n", "setup_stack");
 	bool success = false;
-	void *stack_bottom = (void *) (((uint8_t *) USER_STACK) - PGSIZE);
-
-	/* TODO: Map the stack on stack_bottom and claim the page immediately.
-	 * TODO: If success, set the rsp accordingly.
-	 * TODO: You should mark the page is stack. */
-	/* TODO: Your code goes here */
-
-	return success;
+    void *stack_bottom = (void *) (((uint8_t *) USER_STACK) - PGSIZE);
+    /* TODO: Map the stack on stack_bottom and claim the page immediately.
+     * TODO: If success, set the rsp accordingly.
+     * TODO: You should mark the page is stack. */
+    /* TODO: Your code goes here */
+    // uint8_t *kpage;
+    // bool success = false;
+    // 용의자 후보 1.
+    if (!(vm_alloc_page (VM_ANON | IS_STACK, stack_bottom, 1))) {
+        return false;
+    }
+    if (!(success = vm_claim_page (stack_bottom))) {
+        return false;
+    }
+    if_->rsp = USER_STACK;
+    return success;
 }
 #endif /* VM */

@@ -18,7 +18,7 @@ enum vm_type {
 
 	/* Auxillary bit flag marker for store information. You can add more
 	 * markers, until the value is fit in the int. */
-	VM_MARKER_0 = (1 << 3),
+	IS_STACK = (1 << 3),
 	VM_MARKER_1 = (1 << 4),
 
 	/* DO NOT EXCEED THIS VALUE. */
@@ -111,5 +111,9 @@ bool vm_alloc_page_with_initializer (enum vm_type type, void *upage,
 void vm_dealloc_page (struct page *page);
 bool vm_claim_page (void *va);
 enum vm_type page_get_type (struct page *page);
+
+unsigned page_hash_function(const struct hash_elem *, void * UNUSED);
+bool page_compare_va(const struct hash_elem *, const struct hash_elem *, void * UNUSED);
+struct page *page_lookup (const void *, struct supplemental_page_table *);
 
 #endif  /* VM_VM_H */
