@@ -196,18 +196,18 @@ vm_try_handle_fault (struct intr_frame *f, void *addr,
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
 
-	if(is_kernel_vaddr(addr))
-	{
-		printf("handle fault addr: %p\n", addr);
-		return false;
-	}
+	// if(is_kernel_vaddr(addr))
+	// {
+	// 	printf("handle fault addr: %p\n", addr);
+	// 	return false;
+	// }
 
 	// printf("#########################%s#######################\n", "vm_try_handle_fault");
 
 	page = spt_find_page(spt, addr);
 
 	if(!page)
-		printf("page is NULL\n");
+		return false;
 	// else
 	// 	printf("page isn't NULL\n");
 
@@ -239,10 +239,7 @@ vm_claim_page (void *va) {
 	// print_spt();
 
 	if(page == NULL)
-	{
-		printf("vm_claim_page get page failed\n");
 		return false;
-	}
 
 	return vm_do_claim_page (page);
 }
@@ -275,7 +272,7 @@ vm_do_claim_page (struct page *page) {
 
 	if (!(pml4_get_page (t->pml4, (uint64_t)page->va & ~PGMASK) == NULL
 			&& pml4_set_page (t->pml4, (uint64_t)page->va & ~PGMASK, frame->kva, writable))) {
-		printf("fail\n");
+		// printf("fail\n");
 		palloc_free_page (frame->kva);
 		return false;
 	}
@@ -344,11 +341,12 @@ static void
 hash_destroy_action(struct hash_elem *e, void *aux)
 {
 	struct page *page = hash_entry(e, struct page, hash_elem);
-	if(page->frame)
-	{
-		palloc_free_page(page->frame->kva);
-		free(page->frame);
-	}
+	// if(page->frame)
+	// {
+	// 	printf("hash_destroy_action\n");
+	// 	palloc_free_page(page->frame->kva);
+	// 	free(page->frame);
+	// }
 	vm_dealloc_page(page);
 }
 
@@ -357,8 +355,8 @@ void
 supplemental_page_table_kill (struct supplemental_page_table *spt) {
 	/* TODO: Destroy all the supplemental_page_table hold by thread and
 	 * TODO: writeback all the modified contents to the storage. */
-	// if(!hash_empty(&spt->spt_hash))
-	// 	hash_destroy(&spt->spt_hash, hash_destroy_action);
+	if(!hash_empty(&spt->spt_hash))
+		hash_destroy(&spt->spt_hash, hash_destroy_action);
 }
 
 struct page *

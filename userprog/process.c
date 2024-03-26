@@ -336,7 +336,7 @@ void
 process_exit (void) {
   struct thread *curr = thread_current ();
 
-  for (int fd = 0; fd < FD_COUNT_LIMIT; fd++) {
+  for (int fd = 0; curr->fd_table[fd] != NULL && fd < FD_COUNT_LIMIT; fd++) {
     close(fd);
   }
 
