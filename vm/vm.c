@@ -5,6 +5,8 @@
 #include "vm/inspect.h"
 #include "include/threads/mmu.h"
 #include "threads/vaddr.h"
+#include "include/userprog/process.h"
+#include <string.h>
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -60,9 +62,6 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 	type = (enum vm_type)VM_TYPE(type);
 
 	if(!page)	goto err;
-
-
-	// printf("vm_alloc_page_with_initializer11111111111111111\n");
 
 	/* Check wheter the upage is already occupied or not. */
 	if (spt_find_page (spt, upage) == NULL) {
@@ -191,16 +190,15 @@ vm_handle_wp (struct page *page UNUSED) {
 bool
 vm_try_handle_fault (struct intr_frame *f, void *addr,
 		bool user, bool write, bool not_present) {
-	struct supplemental_page_table *spt = &thread_current ()->spt;
-	struct page *page = NULL;
+	struct supplemental_page_table 	*spt = &thread_current ()->spt;
+	struct page 					*page = NULL;
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
 
-	// if(is_kernel_vaddr(addr))
-	// {
-	// 	printf("handle fault addr: %p\n", addr);
-	// 	return false;
-	// }
+	if(is_kernel_vaddr(addr))
+		return false;
+
+	// printf("thread_current()->name: %s\n", thread_current()->name);
 
 	// printf("#########################%s#######################\n", "vm_try_handle_fault");
 
@@ -247,8 +245,8 @@ vm_claim_page (void *va) {
 /* Claim the PAGE and set up the mmu. */
 static bool
 vm_do_claim_page (struct page *page) {
-	struct frame *frame = vm_get_frame ();
-	struct thread *t = thread_current ();
+	struct frame 	*frame = vm_get_frame ();
+	struct thread 	*t = thread_current ();
 	bool writable;
 
 	/* Set links */
@@ -304,8 +302,8 @@ supplemental_page_table_init (struct supplemental_page_table *spt) {
 unsigned
 page_hash_function(const struct hash_elem *h_elem, void *aux)
 {
-	struct page *page = hash_entry(h_elem, struct page, hash_elem);
-	uint64_t temp_va = pg_round_down(page->va);
+	struct page 	*page = hash_entry(h_elem, struct page, hash_elem);
+	uint64_t 		temp_va = pg_round_down(page->va);
 	return hash_bytes(&temp_va, sizeof page->va);
 }
 
@@ -321,8 +319,52 @@ page_compare_va(const struct hash_elem *a, const struct hash_elem *b, void *aux)
 static void 
 hash_copy_action (struct hash_elem *e, void *aux)
 {
-	struct supplemental_page_table *spt = (struct supplemental_page_table *)aux;
-	hash_insert(&spt->spt_hash, e);
+	struct supplemental_page_table 	*copy_spt = (struct supplemental_page_table *)aux;
+	struct supplemental_page_table	*origin_spt = (struct supplemental_page_table *)copy_spt->spt_hash.aux;
+	struct page 					*origin_page, *copy_page;
+	enum   vm_type					vm_type;
+	bool	   						origin_writable;
+	bool							temp_bool;
+
+	// printf("#########################%s#######################\n", "hash_copy_action");
+
+	origin_page = hash_entry(e, struct page, hash_elem);
+
+	vm_type = page_get_type(origin_page);
+	origin_writable = (uint64_t)origin_page->va & PTE_W;
+
+	if(vm_type != VM_UNINIT)
+		vm_alloc_page(vm_type, origin_page->va, origin_writable);
+
+	copy_page = spt_find_page(copy_spt, origin_page->va);
+
+	switch(vm_type)
+	{
+		case VM_UNINIT:
+			// copy_page->uninit.aux = origin_page->uninit.aux;
+			// copy_page->uninit.init = origin_page->anon.init;
+			// copy_page->uninit.page_initializer = origin_page->uninit.page_initializer;
+			break;
+
+		case VM_ANON:
+			// copy_page->anon.aux = origin_page->anon.aux;
+			// copy_page->anon.init = origin_page->anon.init;
+			// copy_page->anon.page_initializer = origin_page->anon.page_initializer;
+			vm_do_claim_page(copy_page);
+			// printf("exit_status: %d\n", thread_current()->exit_status);
+			memcpy(copy_page->frame->kva, origin_page->frame->kva, PGSIZE);
+			break;
+
+		case VM_FILE:
+			// copy_page->file.aux = origin_page->file.aux;
+			// copy_page->file.init = origin_page->file.init;
+			// copy_page->file.page_initializer = origin_page->file.page_initializer;
+			vm_do_claim_page(copy_page);
+			memcpy(copy_page->frame->kva, origin_page->frame->kva, PGSIZE);
+			break;
+	}
+
+	// hash_insert(&copy_spt->spt_hash, &copy_page->hash_elem);
 }
 
 /* Copy supplemental page table from src to dst */
@@ -330,11 +372,15 @@ bool
 supplemental_page_table_copy (struct supplemental_page_table *dst,
 		struct supplemental_page_table *src) {
 	
-	dst->spt_hash.hash = src->spt_hash.hash;
-	dst->spt_hash.less = src->spt_hash.less;
+	// printf("#########################%s#######################\n", "supplemental_page_table_copy");
+	// dst->spt_hash.hash = src->spt_hash.hash;
+	// dst->spt_hash.less = src->spt_hash.less;
+	// dst->spt_hash.aux = src;
 
 	src->spt_hash.aux = dst;
-	hash_apply(dst, hash_copy_action);
+	hash_apply(&src->spt_hash, hash_copy_action);
+
+	return hash_size(&src->spt_hash) == hash_size(&dst->spt_hash);
 }
 
 static void
@@ -343,9 +389,8 @@ hash_destroy_action(struct hash_elem *e, void *aux)
 	struct page *page = hash_entry(e, struct page, hash_elem);
 	// if(page->frame)
 	// {
-	// 	printf("hash_destroy_action\n");
+ 	// 	free(page->frame);
 	// 	palloc_free_page(page->frame->kva);
-	// 	free(page->frame);
 	// }
 	vm_dealloc_page(page);
 }
@@ -356,7 +401,10 @@ supplemental_page_table_kill (struct supplemental_page_table *spt) {
 	/* TODO: Destroy all the supplemental_page_table hold by thread and
 	 * TODO: writeback all the modified contents to the storage. */
 	if(!hash_empty(&spt->spt_hash))
-		hash_destroy(&spt->spt_hash, hash_destroy_action);
+	{
+		hash_clear(&spt->spt_hash, hash_destroy_action);
+		// hash_destroy(&spt->spt_hash, hash_destroy_action);
+	}
 }
 
 struct page *

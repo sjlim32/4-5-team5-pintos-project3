@@ -152,8 +152,11 @@ hash_apply (struct hash *h, hash_action_func *action) {
 	size_t i;
 
 	ASSERT (action != NULL);
+	
+	// printf("#########################%s#######################\n", "hash_apply");
 
 	for (i = 0; i < h->bucket_cnt; i++) {
+		// printf("hash_apply for loop %d\n", h->bucket_cnt);
 		struct list *bucket = &h->buckets[i];
 		struct list_elem *elem, *next;
 

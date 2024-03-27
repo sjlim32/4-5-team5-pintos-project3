@@ -2,6 +2,14 @@
 #define USERPROG_PROCESS_H
 
 #include "threads/thread.h"
+
+struct file_info
+{
+	struct file *file;
+	size_t page_read_bytes;
+	off_t off;
+};
+
 tid_t process_create_initd (const char *file_name);
 tid_t process_fork (const char *name, struct intr_frame *if_);
 int process_exec (void *f_name);

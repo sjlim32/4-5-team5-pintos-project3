@@ -37,13 +37,6 @@ static void __do_fork (void *);
 static void argument_passing (struct intr_frame *if_, int argv_cnt, char **argv_list);
 static struct thread *get_child (int tid);
 
-typedef struct file_info
-{
-	struct file *file;
-	size_t page_read_bytes;
-	off_t off;
-};
-
 /* General process initializer for initd and other process. */
 static void
 process_init (void) {
@@ -746,7 +739,6 @@ lazy_load_segment (struct page *page, void *file) {
 		return false;
 	}
 
-	// printf("###########\n");
 	return true;
 }
 
