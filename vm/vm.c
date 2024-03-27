@@ -5,6 +5,8 @@
 #include "vm/inspect.h"
 #include "include/threads/mmu.h"
 #include "threads/vaddr.h"
+
+#include "lib/kernel/hash.h"
 #include "include/userprog/process.h"
 #include <string.h>
 
@@ -328,59 +330,129 @@ hash_copy_action (struct hash_elem *e, void *aux)
 
 	// printf("#########################%s#######################\n", "hash_copy_action");
 
-	origin_page = hash_entry(e, struct page, hash_elem);
+	// origin_page = hash_entry(e, struct page, hash_elem);
+	// origin_writable = (uint64_t)origin_page->va & PTE_W;
+	// vm_type = page_get_type(origin_page);
 
-	vm_type = page_get_type(origin_page);
-	origin_writable = (uint64_t)origin_page->va & PTE_W;
+	// if(vm_type != VM_UNINIT)
+	// 	vm_alloc_page(vm_type, origin_page->va, origin_writable);
 
-	if(vm_type != VM_UNINIT)
-		vm_alloc_page(vm_type, origin_page->va, origin_writable);
+	// copy_page = spt_find_page(copy_spt, origin_page->va);
 
-	copy_page = spt_find_page(copy_spt, origin_page->va);
+	// switch(vm_type)
+	// {
+	// 	case VM_UNINIT:
 
-	switch(vm_type)
-	{
-		case VM_UNINIT:
-			// copy_page->uninit.aux = origin_page->uninit.aux;
-			// copy_page->uninit.init = origin_page->anon.init;
-			// copy_page->uninit.page_initializer = origin_page->uninit.page_initializer;
-			break;
 
-		case VM_ANON:
-			// copy_page->anon.aux = origin_page->anon.aux;
-			// copy_page->anon.init = origin_page->anon.init;
-			// copy_page->anon.page_initializer = origin_page->anon.page_initializer;
-			vm_do_claim_page(copy_page);
-			// printf("exit_status: %d\n", thread_current()->exit_status);
-			memcpy(copy_page->frame->kva, origin_page->frame->kva, PGSIZE);
-			break;
+	// 		break;
 
-		case VM_FILE:
-			// copy_page->file.aux = origin_page->file.aux;
-			// copy_page->file.init = origin_page->file.init;
-			// copy_page->file.page_initializer = origin_page->file.page_initializer;
-			vm_do_claim_page(copy_page);
-			memcpy(copy_page->frame->kva, origin_page->frame->kva, PGSIZE);
-			break;
-	}
+	// 	case VM_ANON:
+	// 		vm_do_claim_page(copy_page);
+	// 		memcpy(copy_page->frame->kva, origin_page->frame->kva, PGSIZE);
+	// 		break;
 
-	// hash_insert(&copy_spt->spt_hash, &copy_page->hash_elem);
+	// 	case VM_FILE:
+	// 		vm_do_claim_page(copy_page);
+	// 		memcpy(copy_page->frame->kva, origin_page->frame->kva, PGSIZE);
+	// 		break;
+	// }
 }
 
 /* Copy supplemental page table from src to dst */
 bool
 supplemental_page_table_copy (struct supplemental_page_table *dst,
 		struct supplemental_page_table *src) {
+
+	enum   vm_type					vm_type;
+	struct file_info				*f_info;
+	bool	   						parent_writable;
 	
 	// printf("#########################%s#######################\n", "supplemental_page_table_copy");
-	// dst->spt_hash.hash = src->spt_hash.hash;
-	// dst->spt_hash.less = src->spt_hash.less;
 	// dst->spt_hash.aux = src;
+	// src->spt_hash.aux = dst;
 
-	src->spt_hash.aux = dst;
-	hash_apply(&src->spt_hash, hash_copy_action);
+	// hash_apply(&src->spt_hash, hash_copy_action);
 
-	return hash_size(&src->spt_hash) == hash_size(&dst->spt_hash);
+	// return (hash_size(&src->spt_hash) == hash_size(&dst->spt_hash));
+
+	for (int i = 0; i < src->spt_hash.bucket_cnt; i++) 
+	{
+		struct list *bucket = &src->spt_hash.buckets[i];
+		struct list_elem *elem, *next;
+
+		for (elem = list_begin (bucket); elem != list_end (bucket); elem = list_next (elem)) 
+		{
+			struct hash_elem		*temp_hash_elem = list_elem_to_hash_elem(elem);
+			struct page				*parent_page = hash_entry(temp_hash_elem, struct page, hash_elem);
+			struct page 			*child_page = (struct page *)calloc(sizeof(struct page), 1);
+
+
+			parent_writable = (uint64_t)parent_page->va & PTE_W;
+			vm_type = page_get_type(parent_page);
+
+			switch(vm_type)
+			{
+				case VM_UNINIT:
+					child_page->uninit.type = parent_page->uninit.type;
+					child_page->uninit.init = parent_page->uninit.init;
+
+					if(parent_page->uninit.aux)
+					{
+						f_info = (struct file_info *)calloc(sizeof(struct file_info), 1);
+						f_info = (struct file_info *)parent_page->uninit.aux;
+						child_page->uninit.aux = f_info;
+					}
+					uninit_new(child_page, parent_page->va, child_page->uninit.init, child_page->uninit.type, child_page->uninit.aux, parent_page->uninit.page_initializer);
+					break;
+
+				case VM_ANON:
+					child_page->anon.type = parent_page->anon.type;
+					child_page->anon.init = parent_page->anon.init;
+
+					if(parent_page->anon.aux)
+					{
+						f_info = (struct file_info *)calloc(sizeof(struct file_info), 1);
+						f_info = (struct file_info *)parent_page->anon.aux;
+						child_page->anon.aux = f_info;
+					}
+					uninit_new(child_page, parent_page->va, child_page->anon.init, child_page->anon.type, child_page->anon.aux, parent_page->anon.page_initializer);
+
+					if(!vm_do_claim_page(child_page))
+					{
+						free(f_info);
+						printf("vm_do_claim_page failed\n");
+						return false;
+					}
+
+					memcpy(child_page->frame->kva, parent_page->frame->kva, PGSIZE);
+					break;
+
+				case VM_FILE:
+					child_page->file.type = parent_page->file.type;
+					child_page->file.init = parent_page->file.init;
+
+					if(parent_page->file.aux)
+					{
+						f_info = (struct file_info *)calloc(sizeof(struct file_info), 1);
+						f_info = (struct file_info *)parent_page->file.aux;
+						child_page->file.aux = f_info;
+					}
+					uninit_new(child_page, parent_page->va, child_page->file.init, child_page->file.type, child_page->file.aux, parent_page->file.page_initializer);
+
+					if(!vm_do_claim_page(child_page))
+					{
+						free(f_info);
+						printf("vm_do_claim_page failed\n");
+						return false;
+					}
+
+					memcpy(child_page->frame->kva, parent_page->frame->kva, PGSIZE);
+					break;
+			}
+		}
+	}
+
+	return true;
 }
 
 static void
@@ -392,6 +464,7 @@ hash_destroy_action(struct hash_elem *e, void *aux)
  	// 	free(page->frame);
 	// 	palloc_free_page(page->frame->kva);
 	// }
+
 	vm_dealloc_page(page);
 }
 
