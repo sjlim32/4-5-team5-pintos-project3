@@ -734,7 +734,7 @@ lazy_load_segment (struct page *page, void *file) {
 
 	file_seek(temp_file, f_info->off);
 
-	if (file_read (temp_file, kpage, page_read_bytes) != (uint64_t)page_read_bytes) {
+	if (file_read (temp_file, pg_round_down(kpage), page_read_bytes) != (uint64_t)page_read_bytes) {
 		palloc_free_page (kpage);
 		return false;
 	}

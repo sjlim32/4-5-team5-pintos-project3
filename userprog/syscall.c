@@ -17,6 +17,8 @@
 #include "threads/init.h"
 #include "threads/palloc.h"
 #include "threads/vaddr.h"
+/* ------ Project 3 ------ */
+#include "vm/vm.h"
 /* ------------------------ */
 
 void syscall_entry (void);
@@ -197,8 +199,18 @@ open (const char *file) {
 
 static void
 check_addr (const char *f_addr) {
-  if (!is_user_vaddr(f_addr) || f_addr == NULL || !pml4_get_page(thread_current()->pml4, f_addr))
-    exit(-1);
+  #ifdef VM
+    if (!is_user_vaddr(f_addr) || f_addr == NULL || (spt_find_page(&thread_current()->spt, f_addr) == NULL))
+    {
+      exit(-1);
+    }
+    
+  #else
+    if (!is_user_vaddr(f_addr) || f_addr == NULL || !pml4_get_page(thread_current()->pml4, f_addr))
+    {
+      exit(-1);
+    }
+  #endif
 }
 
 static bool

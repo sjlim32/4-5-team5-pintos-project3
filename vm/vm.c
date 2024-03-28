@@ -200,16 +200,12 @@ vm_try_handle_fault (struct intr_frame *f, void *addr,
 	if(is_kernel_vaddr(addr))
 		return false;
 
-	// printf("thread_current()->name: %s\n", thread_current()->name);
-
 	// printf("#########################%s#######################\n", "vm_try_handle_fault");
 
 	page = spt_find_page(spt, addr);
 
 	if(!page)
 		return false;
-	// else
-	// 	printf("page isn't NULL\n");
 
 	return vm_do_claim_page (page);
 }
@@ -257,13 +253,7 @@ vm_do_claim_page (struct page *page) {
 
 	// printf("#########################%s#######################\n", "vm_do_claim_page");
 
-	// if(frame->kva)     // anonymous or file_backed 구분
 	/* TODO: Insert page table entry to map page's VA to frame's PA. */
-	// pml4_set_page(&thread_current()->pml4, (uint64_t)page->va & ~PGMASK, frame->kva, true);
-
-	// page->va = (uint64_t)page->va & PTE_W;
-	// set_offset(frame->kva, page->va);
-
 
 	/* Verify that there's not already a page at that virtual
 	 * address, then map our page there. */
@@ -325,134 +315,173 @@ hash_copy_action (struct hash_elem *e, void *aux)
 	struct supplemental_page_table	*origin_spt = (struct supplemental_page_table *)copy_spt->spt_hash.aux;
 	struct page 					*origin_page, *copy_page;
 	enum   vm_type					vm_type;
+	struct file_info				*f_info;
 	bool	   						origin_writable;
 	bool							temp_bool;
 
 	// printf("#########################%s#######################\n", "hash_copy_action");
 
-	// origin_page = hash_entry(e, struct page, hash_elem);
-	// origin_writable = (uint64_t)origin_page->va & PTE_W;
-	// vm_type = page_get_type(origin_page);
+	origin_page = hash_entry(e, struct page, hash_elem);
+	origin_writable = (uint64_t)origin_page->va & PTE_W;
+	vm_type = origin_page->operations->type;
 
-	// if(vm_type != VM_UNINIT)
-	// 	vm_alloc_page(vm_type, origin_page->va, origin_writable);
+	if(vm_type != VM_UNINIT)
+		vm_alloc_page(vm_type, origin_page->va, origin_writable);
+	else
+	{
+		enum vm_type type = origin_page->uninit.type;
+		void *init = origin_page->uninit.init;
 
-	// copy_page = spt_find_page(copy_spt, origin_page->va);
+		if(origin_page->uninit.aux)
+		{
+			f_info = (struct file_info *)calloc(sizeof(struct file_info), 1);
+			if(!f_info)	return false;
 
-	// switch(vm_type)
-	// {
-	// 	case VM_UNINIT:
+			memcpy(f_info, origin_page->uninit.aux, sizeof(struct file_info));
+		}
+		vm_alloc_page_with_initializer(page_get_type(origin_page), origin_page->va, origin_writable, init, f_info);
+	}
 
 
-	// 		break;
+	switch(vm_type)
+	{
+		case VM_UNINIT:
+			break;
 
-	// 	case VM_ANON:
-	// 		vm_do_claim_page(copy_page);
-	// 		memcpy(copy_page->frame->kva, origin_page->frame->kva, PGSIZE);
-	// 		break;
+		case VM_ANON:
+			copy_page = spt_find_page(copy_spt, origin_page->va);
+			vm_do_claim_page(copy_page);
+			memcpy(copy_page->frame->kva, origin_page->frame->kva, PGSIZE);
+			break;
 
-	// 	case VM_FILE:
-	// 		vm_do_claim_page(copy_page);
-	// 		memcpy(copy_page->frame->kva, origin_page->frame->kva, PGSIZE);
-	// 		break;
-	// }
+		case VM_FILE:
+			copy_page = spt_find_page(copy_spt, origin_page->va);
+			vm_do_claim_page(copy_page);
+			memcpy(copy_page->frame->kva, origin_page->frame->kva, PGSIZE);
+			break;
+	}
 }
 
 /* Copy supplemental page table from src to dst */
 bool
-supplemental_page_table_copy (struct supplemental_page_table *dst,
-		struct supplemental_page_table *src) {
-
+supplemental_page_table_copy (struct supplemental_page_table *dst, struct supplemental_page_table *src) 
+{
 	enum   vm_type					vm_type;
 	struct file_info				*f_info;
 	bool	   						parent_writable;
 	
 	// printf("#########################%s#######################\n", "supplemental_page_table_copy");
-	// dst->spt_hash.aux = src;
-	// src->spt_hash.aux = dst;
+	dst->spt_hash.aux = src;
+	src->spt_hash.aux = dst;
 
-	// hash_apply(&src->spt_hash, hash_copy_action);
+	hash_apply(&src->spt_hash, hash_copy_action);
 
-	// return (hash_size(&src->spt_hash) == hash_size(&dst->spt_hash));
+	return (hash_size(&src->spt_hash) == hash_size(&dst->spt_hash));
 
-	for (int i = 0; i < src->spt_hash.bucket_cnt; i++) 
-	{
-		struct list *bucket = &src->spt_hash.buckets[i];
-		struct list_elem *elem, *next;
+	// for (int i = 0; i < src->spt_hash.bucket_cnt; i++) 
+	// {
+	// 	struct list 		*bucket = &src->spt_hash.buckets[i];
+	// 	struct list_elem 	*elem, *next;
 
-		for (elem = list_begin (bucket); elem != list_end (bucket); elem = list_next (elem)) 
-		{
-			struct hash_elem		*temp_hash_elem = list_elem_to_hash_elem(elem);
-			struct page				*parent_page = hash_entry(temp_hash_elem, struct page, hash_elem);
-			struct page 			*child_page = (struct page *)calloc(sizeof(struct page), 1);
+	// 	for (elem = list_begin (bucket); elem != list_end (bucket); elem = list_next (elem)) 
+	// 	{
+	// 		struct hash_elem		*temp_hash_elem = list_elem_to_hash_elem(elem);
+	// 		struct page				*parent_page = hash_entry(temp_hash_elem, struct page, hash_elem);
+	// 		struct page 			*child_page = (struct page *)calloc(sizeof(struct page), 1);
+	// 		void					*parent_va;
 
+	// 		parent_writable = (uint64_t)parent_page->va & PTE_W;
+	// 		vm_type = page_get_type(parent_page);
 
-			parent_writable = (uint64_t)parent_page->va & PTE_W;
-			vm_type = page_get_type(parent_page);
+	// 		switch(vm_type)
+	// 		{
+	// 			case VM_UNINIT:
+	// 				child_page->uninit.type = parent_page->uninit.type;
+	// 				child_page->uninit.init = parent_page->uninit.init;
+	// 				child_page->uninit.page_initializer = parent_page->uninit.page_initializer;
+	// 				if(parent_page->uninit.aux)
+	// 				{
+	// 					f_info = (struct file_info *)calloc(sizeof(struct file_info), 1);
+	// 					if(!f_info)	return false;
 
-			switch(vm_type)
-			{
-				case VM_UNINIT:
-					child_page->uninit.type = parent_page->uninit.type;
-					child_page->uninit.init = parent_page->uninit.init;
+	// 					f_info = (struct file_info *)parent_page->uninit.aux;
+	// 					child_page->uninit.aux = f_info;
+	// 				}
 
-					if(parent_page->uninit.aux)
-					{
-						f_info = (struct file_info *)calloc(sizeof(struct file_info), 1);
-						f_info = (struct file_info *)parent_page->uninit.aux;
-						child_page->uninit.aux = f_info;
-					}
-					uninit_new(child_page, parent_page->va, child_page->uninit.init, child_page->uninit.type, child_page->uninit.aux, parent_page->uninit.page_initializer);
-					break;
+	// 				uninit_new(child_page, parent_page->va, child_page->uninit.init, child_page->uninit.type, f_info, parent_page->uninit.page_initializer);
 
-				case VM_ANON:
-					child_page->anon.type = parent_page->anon.type;
-					child_page->anon.init = parent_page->anon.init;
+	// 				break;
 
-					if(parent_page->anon.aux)
-					{
-						f_info = (struct file_info *)calloc(sizeof(struct file_info), 1);
-						f_info = (struct file_info *)parent_page->anon.aux;
-						child_page->anon.aux = f_info;
-					}
-					uninit_new(child_page, parent_page->va, child_page->anon.init, child_page->anon.type, child_page->anon.aux, parent_page->anon.page_initializer);
+	// 			case VM_ANON:
+	// 				child_page->anon.type = parent_page->anon.type;
+	// 				child_page->anon.init = parent_page->anon.init;
+	// 				child_page->anon.page_initializer = parent_page->anon.page_initializer;
 
-					if(!vm_do_claim_page(child_page))
-					{
-						free(f_info);
-						printf("vm_do_claim_page failed\n");
-						return false;
-					}
+	// 				// printf("call in supplemental_page_table_copy\n");
+	// 				printf("parent->va: %x\n", parent_page->va);
 
-					memcpy(child_page->frame->kva, parent_page->frame->kva, PGSIZE);
-					break;
+	// 				if(parent_page->anon.aux)
+	// 				{
+	// 					f_info = (struct file_info *)calloc(sizeof(struct file_info), 1);
+	// 					if(!f_info)	return false;
 
-				case VM_FILE:
-					child_page->file.type = parent_page->file.type;
-					child_page->file.init = parent_page->file.init;
+	// 					f_info = (struct file_info *)parent_page->anon.aux;
+	// 					child_page->anon.aux = f_info;
+	// 				}
 
-					if(parent_page->file.aux)
-					{
-						f_info = (struct file_info *)calloc(sizeof(struct file_info), 1);
-						f_info = (struct file_info *)parent_page->file.aux;
-						child_page->file.aux = f_info;
-					}
-					uninit_new(child_page, parent_page->va, child_page->file.init, child_page->file.type, child_page->file.aux, parent_page->file.page_initializer);
+	// 				// printf("parent_page aux: %d\n", f_info->page_read_bytes);
 
-					if(!vm_do_claim_page(child_page))
-					{
-						free(f_info);
-						printf("vm_do_claim_page failed\n");
-						return false;
-					}
+	// 				uninit_new(child_page, parent_page->va, child_page->anon.init, child_page->anon.type, f_info, parent_page->anon.page_initializer);
 
-					memcpy(child_page->frame->kva, parent_page->frame->kva, PGSIZE);
-					break;
-			}
-		}
-	}
+	// 				if(!vm_do_claim_page(child_page))
+	// 				{
+	// 					free(f_info);
+	// 					printf("anon vm_do_claim_page failed\n");
+	// 					return false;
+	// 				}
 
-	return true;
+	// 				// printf("child_page va: %x\n", child_page->va);
+	// 				// printf("child_page kva: %x\n", child_page->frame->kva);
+
+	// 				memcpy(child_page->frame->kva, parent_page->frame->kva, PGSIZE);
+
+	// 				break;
+
+	// 			case VM_FILE:
+	// 				child_page->file.type = parent_page->file.type;
+	// 				child_page->file.init = parent_page->file.init;
+	// 				child_page->file.page_initializer = parent_page->file.page_initializer;
+					
+	// 				if(parent_page->file.aux)
+	// 				{
+	// 					f_info = (struct file_info *)calloc(sizeof(struct file_info), 1);
+	// 					if(!f_info)	return false;
+
+	// 					f_info = (struct file_info *)parent_page->file.aux;
+	// 					child_page->file.aux = f_info;
+	// 				}
+
+	// 				uninit_new(child_page, parent_page->va, child_page->file.init, child_page->file.type, f_info, parent_page->file.page_initializer);
+
+	// 				if(!vm_do_claim_page(child_page))
+	// 				{
+	// 					free(f_info);
+	// 					printf("file-backed vm_do_claim_page failed\n");
+	// 					return false;
+	// 				}
+
+	// 				memcpy(child_page->frame->kva, parent_page->frame->kva, PGSIZE);
+
+	// 				break;
+	// 		}
+	// 	}
+	// }
+
+	// print_spt();
+
+	// free(f_info);
+
+	// return true;
 }
 
 static void
