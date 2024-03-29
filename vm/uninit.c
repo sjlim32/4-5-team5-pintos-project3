@@ -27,6 +27,7 @@ void
 uninit_new (struct page *page, void *va, vm_initializer *init,
 		enum vm_type type, void *aux,
 		bool (*initializer)(struct page *, enum vm_type, void *)) {
+	// printf ("=========uninit_new start==============\n"); ////////////////////////////////
 	ASSERT (page != NULL);
 
 	*page = (struct page) {
@@ -48,6 +49,7 @@ uninit_new (struct page *page, void *va, vm_initializer *init,
 /* Initalize the page on first fault */
 static bool
 uninit_initialize (struct page *page, void *kva) {
+	// printf ("=========uninit_initialize start==============\n"); ////////////////////////////////
 	struct uninit_page *uninit = &page->uninit;
 
 	/* Fetch first, page_initialize may overwrite the values */
@@ -69,7 +71,10 @@ uninit_initialize (struct page *page, void *kva) {
  * PAGE will be freed by the caller. */
 static void
 uninit_destroy (struct page *page) {
-	struct uninit_page *uninit UNUSED = &page->uninit;
+	struct uninit_page *uninit = &page->uninit;
 	/* TODO: Fill this function.
 	 * TODO: If you don't have anything to do, just return. */
+	if (uninit->aux != NULL) {
+		free (uninit->aux);
+	}
 }

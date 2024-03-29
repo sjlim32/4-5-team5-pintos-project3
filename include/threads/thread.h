@@ -32,7 +32,7 @@ typedef int tid_t;
 
 /* --- Project 2 : System call --- */
 #define FDT_PAGES 3
-#define FD_COUNT_LIMIT (FDT_PAGES * PGSIZE)
+#define FD_COUNT_LIMIT (FDT_PAGES * (1 << 9))
 
 /* A kernel thread or user process.
  *
@@ -134,6 +134,8 @@ struct thread {
 #ifdef VM
   /* Table for whole virtual memory owned by thread. */
   struct supplemental_page_table spt;
+  uintptr_t stack_bottom;
+  
 #endif
 
 	/* Owned by thread.c. */

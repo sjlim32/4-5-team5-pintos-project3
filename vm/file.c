@@ -50,6 +50,7 @@ file_backed_swap_in (struct page *page, void *kva) {
 static bool
 file_backed_swap_out (struct page *page) {
 	struct file_page *file_page UNUSED = &page->file;
+	page->va = pg_ofs (page->va) | PTE_P;
 }
 
 /* 연관된 파일을 닫아 파일 백드 페이지를 소멸시킵니다.

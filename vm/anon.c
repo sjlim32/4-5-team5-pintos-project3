@@ -34,9 +34,11 @@ vm_anon_init (void) {
 /* Initialize the file mapping */
 bool
 anon_initializer (struct page *page, enum vm_type type, void *kva) {
+	// printf ("=========anon_initializer start==============\n"); ////////////////////////////////
 	/* Set up the handler */
 	page->operations = &anon_ops;
 
+	// TODO: disk 관련
 	struct anon_page *anon_page = &page->anon;
 }
 
@@ -47,6 +49,7 @@ anon_initializer (struct page *page, enum vm_type type, void *kva) {
 static bool
 anon_swap_in (struct page *page, void *kva) {
 	struct anon_page *anon_page = &page->anon;
+
 }
 
 /* swap_in 보다 먼저 구현
@@ -58,6 +61,7 @@ anon_swap_in (struct page *page, void *kva) {
 static bool
 anon_swap_out (struct page *page) {
 	struct anon_page *anon_page = &page->anon;
+	page->va = pg_ofs (page->va) | PTE_P;
 }
 
 /* 익명 페이지가 보유한 리소스를 해제합니다.
@@ -66,5 +70,8 @@ anon_swap_out (struct page *page) {
 static void
 anon_destroy (struct page *page) {
 	struct anon_page *anon_page = &page->anon;
-	free (anon_page->aux);
+	
+	if (anon_page->aux != NULL) {
+		free (anon_page->aux);
+	}
 }

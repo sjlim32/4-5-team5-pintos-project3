@@ -24,6 +24,7 @@ static void rehash (struct hash *);
 bool
 hash_init (struct hash *h,
 		hash_hash_func *hash, hash_less_func *less, void *aux) {
+	// printf ("=========hash_init start==============\n"); ////////////////////////////////
 	h->elem_cnt = 0;
 	h->bucket_cnt = 4;
 	h->buckets = malloc (sizeof *h->buckets * h->bucket_cnt);

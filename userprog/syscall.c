@@ -58,6 +58,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
   //? 인자 - %rdi, $rsi, %rdx, %r10, %r8, %r9
 
   int sys_number = f->R.rax;
+  thread_current ()->stack_bottom = f->rsp;
 
   switch (sys_number) {
 
@@ -199,14 +200,69 @@ open (const char *file) {
     return -1;
   }
   fdt[curr->fd_idx] = f;
+  // printf ("");
 
   return curr->fd_idx;
 }
 
 static void
 check_addr (const char *f_addr) {
-  if (!is_user_vaddr(f_addr) || f_addr == NULL || !pml4_get_page(thread_current()->pml4, f_addr))
+#ifdef VM
+  // printf ("@@@@@@@@@@@@@@is writable? %p, %d:\n", );
+  struct page* page;
+  if (!is_user_vaddr(f_addr) || f_addr == NULL) {
     exit(-1);
+  }
+  if ((page = spt_find_page (&thread_current ()->spt, f_addr)) == NULL) {
+    // printf ("[check_addr] FAILED: cannot find page with f_addr: %p\n", f_addr);
+    exit (-1);
+  }
+  return;
+
+#else
+
+  if (!is_user_vaddr(f_addr) || f_addr == NULL || !pml4_get_page(thread_current()->pml4, f_addr)) {
+    exit(-1);
+  }
+
+#endif
+}
+
+static void
+check_buffer (const char *buffer) {
+#ifdef VM
+  // printf ("@@@@@@@@@@@@@@is writable? %p, %d:\n", );
+  struct thread* t = thread_current ();
+  struct page* page = spt_find_page (&t->spt, buffer);
+
+  if (!is_user_vaddr(buffer) || buffer == NULL) {
+    // printf ("@@@@@@@@@@@@@@@@exit!!!!!!!!!!\n");
+    exit(-1);
+  }
+
+  if (page == NULL) {
+    if (buffer < USER_STACK && (t->stack_bottom) < buffer) {
+      return;
+    }
+    // printf ("##############exit!!!!!!!!!!\n");
+    exit (-1);
+  } else {
+    bool writable = pg_ofs (page->va) & PTE_W;
+    if (!writable) {
+    // printf ("$$$$$$$$$$$$$$$exit!!!!!!!!!!\n");
+      exit (-1);
+    }
+  }
+
+  return;
+
+#else
+
+  if (!is_user_vaddr(f_addr) || f_addr == NULL || !pml4_get_page(thread_current()->pml4, f_addr)) {
+    exit(-1);
+  }
+
+#endif
 }
 
 static bool
@@ -232,7 +288,9 @@ filesize (int fd) {
 
 static int
 read (int fd, void *buffer, unsigned length) {
-  check_addr(buffer);
+  check_buffer (buffer);
+	// printf ("=========syscall read after check_addr %p==============\n", buffer); ////////////////////////////////
+	// printf ("=========syscall read after check_addr %p==============\n", buffer + length - 1); ////////////////////////////////
   if (fd > FD_COUNT_LIMIT || fd == STDOUT_FILENO || fd < 0)
     return -1;
 
@@ -252,6 +310,8 @@ read (int fd, void *buffer, unsigned length) {
 static int
 write (int fd, const void *buffer, unsigned length) {
   check_addr(buffer);
+  check_addr (buffer + length - 1);
+
   if (fd > FD_COUNT_LIMIT || fd <= 0)
     return -1;
 

@@ -396,12 +396,12 @@ thread_exit (void) {
 	   We will be destroyed during the call to schedule_tail(). */
 	intr_disable ();
 	struct list_elem *e = list_head (&all_list);
-  while ((e = list_next (e)) != list_end (&all_list)) {
-    struct thread *t = list_entry (e, struct thread, a_elem);
+	while ((e = list_next (e)) != list_end (&all_list)) {
+		struct thread *t = list_entry (e, struct thread, a_elem);
 
-    if (thread_current () == t)
-      list_remove(&t->a_elem);
-  }
+		if (thread_current () == t)
+			list_remove(&t->a_elem);
+	}
 	do_schedule (THREAD_DYING);
 	NOT_REACHED ();
 }

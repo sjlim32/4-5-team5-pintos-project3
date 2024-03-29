@@ -1,7 +1,10 @@
 #ifndef VM_VM_H
 #define VM_VM_H
 #include <stdbool.h>
+#include <stdlib.h>
 #include "threads/palloc.h"
+#include "threads/vaddr.h"
+#include "threads/pte.h"
 
 enum vm_type {
 	/* page not initialized */
@@ -91,10 +94,8 @@ struct page_operations {
  * We don't want to force you to obey any specific design for this struct.
  * All designs up to you for this. */
 struct supplemental_page_table {
+	unsigned long long i;
 	struct hash spt_hash;
-
-	struct frame* physical_frame;
-	enum vm_type type;
 };
 
 #include "threads/thread.h"
@@ -108,6 +109,7 @@ bool spt_insert_page (struct supplemental_page_table *spt, struct page *page);
 void spt_remove_page (struct supplemental_page_table *spt, struct page *page);
 
 void vm_init (void);
+bool vm_stack_growth (void *addr);
 bool vm_try_handle_fault (struct intr_frame *f, void *addr, bool user,
 		bool write, bool not_present);
 
@@ -123,5 +125,8 @@ unsigned page_hash (const struct hash_elem *p_, void *aux UNUSED);
 bool page_less (const struct hash_elem *a_, const struct hash_elem *b_, void *aux UNUSED);
 struct page *
 page_lookup (const struct hash* pt_hash, const void *address);
+
+// void supplemental_page_table_print (void);
+void print_spt(void);
 
 #endif  /* VM_VM_H */

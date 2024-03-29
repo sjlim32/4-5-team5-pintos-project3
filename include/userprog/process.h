@@ -10,12 +10,15 @@ int process_wait (tid_t);
 void process_exit (void);
 void process_activate (struct thread *next);
 
+bool lazy_load_segment (struct page *page, void *aux);
+
 /* Project 2 - Argument Passing */
 static void argument_passing (struct intr_frame *if_, int argv_cnt, char **argv_list);
 
 typedef struct file_info {
 	struct file* file;
 	uint32_t read_bytes;
+	off_t ofs;
 } file_info;
 
 #endif /* userprog/process.h */
