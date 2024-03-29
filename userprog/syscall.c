@@ -119,6 +119,14 @@ syscall_handler (struct intr_frame *f UNUSED) {
       close(f->R.rsi);
       break;
 
+    case SYS_MMAP:
+      mmap(f->R.rdi, f->R.rsi, f->R.rdx, f->R.r10, f->R.r8);
+      break;
+
+    case SYS_MUNMAP:
+      munmap(f->R.rdi);
+      break;
+
     default:
       printf("system call!\n");
       thread_exit ();
@@ -179,6 +187,7 @@ create (const char* file, unsigned initial_size) {
 static int
 open (const char *file) {
   check_addr(file);
+
   struct file *f = filesys_open(file);
   if (f == NULL)
     return -1;
@@ -267,6 +276,7 @@ filesize (int fd) {
 static int
 read (int fd, void *buffer, unsigned length) {
   check_buffer(buffer);
+
   if (fd > FD_COUNT_LIMIT || fd == STDOUT_FILENO || fd < 0)
     return -1;
 
@@ -343,4 +353,24 @@ close (int fd) {
 
   curr->fd_table[fd] = NULL;
   file_close(f);
+}
+
+void 
+mmap(void *addr, size_t length, int writable, int fd, off_t offset)
+{
+  struct thread   *cur_thread = thread_current();
+  struct file     *file = cur_thread->fd_table[fd];
+
+  if(file == NULL)
+    return;
+
+  // printf("system call mmap addr: %x\n", addr);
+
+  do_mmap(addr, length, writable, file, offset);
+}
+
+void
+munmap(void *va)
+{
+  do_munmap(va);
 }
