@@ -805,9 +805,6 @@ setup_stack (struct intr_frame *if_) {
      * TODO: If success, set the rsp accordingly.
      * TODO: You should mark the page is stack. */
     /* TODO: Your code goes here */
-    // uint8_t *kpage;
-    // bool success = false;
-    // 용의자 후보 1.
     if (!(vm_alloc_page (VM_ANON | IS_STACK, stack_bottom, 1))) {
         return false;
     }
@@ -815,6 +812,7 @@ setup_stack (struct intr_frame *if_) {
         return false;
     }
     if_->rsp = USER_STACK;
+	thread_current()->f_rsp = USER_STACK;
     return success;
 }
 #endif /* VM */

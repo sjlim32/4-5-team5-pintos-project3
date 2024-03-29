@@ -60,6 +60,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
   //? 인자 - %rdi, $rsi, %rdx, %r10, %r8, %r9
 
   int sys_number = f->R.rax;
+  thread_current()->f_rsp = f->rsp;
 
   switch (sys_number) {
 
@@ -213,6 +214,35 @@ check_addr (const char *f_addr) {
   #endif
 }
 
+
+static void
+check_buffer (void *buffer) {
+#ifdef VM
+  if (!(buffer && is_user_vaddr (buffer))) {
+    exit (-1);
+  }
+  struct thread *curr = thread_current ();
+  struct page *find_page = spt_find_page (&curr->spt, (void *)buffer);
+  if (!find_page) {
+    if (buffer < USER_STACK && (curr->f_rsp < buffer)) {
+      return;
+    }
+
+    exit (-1);
+  }
+  else {
+    bool writable = (uint64_t)find_page->va & PTE_W;
+    if (!writable) {
+      exit (-1);
+    }
+  }
+#else
+  if (!is_user_vaddr (buffer) || buffer == NULL || !pml4_get_page (thread_current ()->pml4, buffer)) {
+    exit(-1);
+  }
+#endif
+}
+
 static bool
 remove (const char *file) {
   check_addr(file);
@@ -236,7 +266,7 @@ filesize (int fd) {
 
 static int
 read (int fd, void *buffer, unsigned length) {
-  check_addr(buffer);
+  check_buffer(buffer);
   if (fd > FD_COUNT_LIMIT || fd == STDOUT_FILENO || fd < 0)
     return -1;
 
