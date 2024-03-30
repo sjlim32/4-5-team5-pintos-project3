@@ -4,6 +4,7 @@
 #include "include/threads/vaddr.h"
 #include "threads/malloc.h"
 #include "include/userprog/process.h"
+#include "include/lib/round.h"
 
 static bool file_backed_swap_in (struct page *page, void *kva);
 static bool file_backed_swap_out (struct page *page);
@@ -50,6 +51,8 @@ file_backed_swap_out (struct page *page) {
 static void
 file_backed_destroy (struct page *page) {
 	struct file_page *file_page = &page->file;
+
+	free(file_page->aux);
 }
 
 static bool
@@ -62,16 +65,17 @@ lazy_load(struct page *page, void *aux)
 
 	uint8_t *kpage = (uint8_t *)page->frame->kva;
 
-	printf("page->frame->kva: %x\n", page->frame->kva);
+	// printf("lazy_load function activate\n");
+
+	// print_spt();
+
 	file_seek(file, offset);
-	if (file_read (file, kpage, read_bytes) != (int) read_bytes) 
+	if (file_read (file, kpage, read_bytes) != (int) read_bytes)
 	{
+		printf("file_read failed\n");
 		palloc_free_page (kpage);
 		return false;
 	}
-
-	// page->frame->kva가 항상 같은 곳을 가리킴
-	// 왜...??
 
 	return true;
 }
@@ -80,55 +84,41 @@ lazy_load(struct page *page, void *aux)
 void *
 do_mmap (void *addr, size_t length, int writable, struct file *file, off_t offset)
 {
-	size_t total_length = length;
+	size_t 		total_length = offset + length;
+	void		*origin_addr = addr;
 
-	// printf("addr: %x, length: %d, offset: %d, writable: %d\n", addr, length, offset, writable);
+	// printf("addr: %x, length: %d, offset: %d, writable: %d, file_length: %d\n", addr, length, offset, writable, file_length(file));
+
+	if(offset % PGSIZE != 0)
+		return NULL;
 
 	file_seek (file, offset);
 	while (total_length > 0) 
 	{
 		// printf("111111111\n");
 		size_t read_bytes = total_length < PGSIZE ? total_length : PGSIZE;
+
 		struct file_info *f_info = (struct file_info *)malloc(sizeof(struct file_info));
 		if(!f_info) return;
 
-		// printf("22222222222\n");
 		f_info->file = file;
-		f_info->page_read_bytes = read_bytes;
+		f_info->page_read_bytes = file_length(file);
 		f_info->off = offset;
 
 		void *aux = f_info;
-
 		if(!vm_alloc_page_with_initializer(VM_FILE, addr, writable, lazy_load, aux))
 		{
+			printf("vm_alloc_page_with_initializer failed\n");
 			free(f_info);
 			return false;
 		}
 
-		// printf("3333333333333\n");
-		
-		print_spt();
-
-		// struct page *temp_page;
-		// if((temp_page = spt_find_page(&thread_current()->spt, addr)) != NULL)
-		// {
-		// 	// printf("spt_find_page is NULL\n");
-		// 	printf("temp_page->va: %s\n", temp_page->va);
-		// }
-
-
-		if(!vm_claim_page(addr))
-		{
-			// printf("vm_claim_page failed\n");
-			return false;
-		}
-
-		// printf("44444444444444\n");
 		total_length -= read_bytes;
 		offset += read_bytes;
 		addr += PGSIZE;
 	}
 
+	return spt_find_page(&thread_current()->spt, origin_addr);
 	// printf("5555555555555555\n");
 }
 

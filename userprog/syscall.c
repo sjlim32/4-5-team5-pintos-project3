@@ -120,7 +120,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
       break;
 
     case SYS_MMAP:
-      mmap(f->R.rdi, f->R.rsi, f->R.rdx, f->R.r10, f->R.r8);
+      f->R.rax = mmap(f->R.rdi, f->R.rsi, f->R.rdx, f->R.r10, f->R.r8);
       break;
 
     case SYS_MUNMAP:
@@ -355,18 +355,21 @@ close (int fd) {
   file_close(f);
 }
 
-void 
+void *
 mmap(void *addr, size_t length, int writable, int fd, off_t offset)
 {
   struct thread   *cur_thread = thread_current();
   struct file     *file = cur_thread->fd_table[fd];
+
+  if (fd > FD_COUNT_LIMIT || fd == STDOUT_FILENO || fd < 0)
+    return NULL;
 
   if(file == NULL)
     return;
 
   // printf("system call mmap addr: %x\n", addr);
 
-  do_mmap(addr, length, writable, file, offset);
+  return do_mmap(addr, length, writable, file, offset);
 }
 
 void

@@ -39,7 +39,7 @@ static int write (int fd, const void *buffer, unsigned length);
 static void seek (int fd, unsigned position);
 static unsigned tell (int fd);
 void close (int fd);
-void mmap(void *, size_t, int, int, off_t);
+void *mmap(void *, size_t, int, int, off_t);
 void munmap(void *);
 
 static int dup2(int oldfd, int newfd);

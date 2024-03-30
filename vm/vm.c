@@ -165,7 +165,7 @@ vm_get_frame (void) {
 	frame = (struct frame *)calloc(sizeof(struct frame), 1);
 	
 	frame->kva = palloc_get_page(PAL_USER | PAL_ZERO);
-	
+
 	if(!frame->kva)	PANIC("ToDo");				// swap function
 
 	ASSERT (frame != NULL);
@@ -186,8 +186,7 @@ vm_handle_wp (struct page *page UNUSED) {
 
 /* Return true on success */
 bool
-vm_try_handle_fault (struct intr_frame *f, void *addr,
-		bool user, bool write, bool not_present) {
+vm_try_handle_fault (struct intr_frame *f, void *addr, bool user, bool write, bool not_present) {
 	struct supplemental_page_table 	*spt = &thread_current ()->spt;
 	struct page 					*page = NULL;
 	uint64_t						cur_rsp = user ? thread_current()->f_rsp : f->rsp;
@@ -196,16 +195,8 @@ vm_try_handle_fault (struct intr_frame *f, void *addr,
 	if(is_kernel_vaddr(addr))
 		return false;
 
-	// printf("addr: %x\n", cur_rsp - (uint64_t)addr);
-	// printf("addr: %x, f_rsp: %x, rsp: %x\n", addr, thread_current()->f_rsp, cur_rsp);
-
 	if((cur_rsp - 8) >= (uint64_t)addr + PGSIZE && (USER_STACK - (uint64_t)addr) <= (1 << 20))
-	{
-		// if(cur_rsp - (uint64_t)addr > 8)
-		// 	return false;
-
 		vm_stack_growth(addr);
-	}
 
 	// printf("#########################%s#######################\n", "vm_try_handle_fault");
 
@@ -238,8 +229,12 @@ vm_claim_page (void *va) {
 
 	// print_spt();
 
+	// printf("vm_claim_page function activate\n");
+
 	if(page == NULL)
 		return false;
+
+	// printf("!!!!!!!!!!!!!\n");
 
 	return vm_do_claim_page (page);
 }
@@ -268,6 +263,8 @@ vm_do_claim_page (struct page *page) {
 	}
 
 	frame->kva = (uint64_t)frame->kva | ((uint64_t)page->va & PGMASK);
+
+	// printf("frame->kva: %x\n", frame->kva);
 
 	return swap_in (page, frame->kva);
 }
