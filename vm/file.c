@@ -84,12 +84,12 @@ lazy_load(struct page *page, void *aux)
 void *
 do_mmap (void *addr, size_t length, int writable, struct file *file, off_t offset)
 {
-	size_t 		total_length = offset + length;
+	size_t 		total_length = file_length(file);
 	void		*origin_addr = addr;
 
 	// printf("addr: %x, length: %d, offset: %d, writable: %d, file_length: %d\n", addr, length, offset, writable, file_length(file));
 
-	if(offset % PGSIZE != 0)
+	if(offset % PGSIZE != 0 || length == 0)
 		return NULL;
 
 	file_seek (file, offset);
@@ -102,7 +102,7 @@ do_mmap (void *addr, size_t length, int writable, struct file *file, off_t offse
 		if(!f_info) return;
 
 		f_info->file = file;
-		f_info->page_read_bytes = file_length(file);
+		f_info->page_read_bytes = read_bytes;
 		f_info->off = offset;
 
 		void *aux = f_info;
@@ -118,12 +118,16 @@ do_mmap (void *addr, size_t length, int writable, struct file *file, off_t offse
 		addr += PGSIZE;
 	}
 
+	// print_spt();
+
 	return spt_find_page(&thread_current()->spt, origin_addr);
 	// printf("5555555555555555\n");
 }
 
 /* Do the munmap */
 void
-do_munmap (void *addr) {
-
+do_munmap (void *page) {
+	struct page *target_page = (struct page *)page;
+	// printf("do-munmap va: %x\n", target_page->va);
+	// vm_dealloc_page(target_page);
 }
