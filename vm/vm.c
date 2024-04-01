@@ -257,7 +257,7 @@ vm_do_claim_page (struct page *page) {
 	if (!(pml4_get_page (t->pml4, (uint64_t)page->va & ~PGMASK) == NULL
 			&& pml4_set_page (t->pml4, (uint64_t)page->va & ~PGMASK, frame->kva, writable)))
 	{
-		printf("pml4 set failed\n");
+		// printf("pml4 set failed\n");
 		palloc_free_page (frame->kva);
 		return false;
 	}
@@ -387,9 +387,7 @@ hash_destroy_action(struct hash_elem *e, void *aux)
 void
 supplemental_page_table_kill (struct supplemental_page_table *spt) {
 	if(!hash_empty(&spt->spt_hash))
-	{
 		hash_clear(&spt->spt_hash, hash_destroy_action);
-	}
 }
 
 struct page *

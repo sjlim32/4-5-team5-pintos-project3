@@ -7,6 +7,8 @@
 #include "tests/vm/sample.inc"
 #include "tests/lib.h"
 #include "tests/main.h"
+#include "filesys/file.h"
+#include "threads/thread.h"
 
 #define ACTUAL ((void *) 0x10000000)
 

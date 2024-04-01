@@ -52,7 +52,9 @@ static void
 file_backed_destroy (struct page *page) {
 	struct file_page *file_page = &page->file;
 
-	free(file_page->aux);
+	// free(file_page->aux);
+	if(page->uninit.aux)
+		free(page->uninit.aux);
 }
 
 static bool
@@ -64,10 +66,6 @@ lazy_load(struct page *page, void *aux)
 	off_t				offset = f_info->off;
 
 	uint8_t *kpage = (uint8_t *)page->frame->kva;
-
-	// printf("lazy_load function activate\n");
-
-	// print_spt();
 
 	file_seek(file, offset);
 	if (file_read (file, kpage, read_bytes) != (int) read_bytes)
@@ -86,48 +84,77 @@ do_mmap (void *addr, size_t length, int writable, struct file *file, off_t offse
 {
 	size_t 		total_length = file_length(file);
 	void		*origin_addr = addr;
+	size_t		origin_length = length;
 
 	// printf("addr: %x, length: %d, offset: %d, writable: %d, file_length: %d\n", addr, length, offset, writable, file_length(file));
+	if(!(addr < thread_current()->f_rsp))
+		return NULL;
+
+	if(!is_user_vaddr(addr))
+		return NULL;
 
 	if(offset % PGSIZE != 0 || length == 0)
 		return NULL;
 
+	// printf("mmap file size: %d\n", file_length(file));
+
 	file_seek (file, offset);
-	while (total_length > 0) 
+	while (length > 0)
 	{
-		// printf("111111111\n");
 		size_t read_bytes = total_length < PGSIZE ? total_length : PGSIZE;
 
 		struct file_info *f_info = (struct file_info *)malloc(sizeof(struct file_info));
-		if(!f_info) return;
+		if(!f_info) return NULL;
 
 		f_info->file = file;
 		f_info->page_read_bytes = read_bytes;
 		f_info->off = offset;
 
+		// printf("file_info->page_read_bytes: %d\n", f_info->page_read_bytes);
+
 		void *aux = f_info;
 		if(!vm_alloc_page_with_initializer(VM_FILE, addr, writable, lazy_load, aux))
 		{
-			printf("vm_alloc_page_with_initializer failed\n");
+			// printf("vm_alloc_page_with_initializer failed\n");
 			free(f_info);
-			return false;
+			return NULL;
 		}
 
 		total_length -= read_bytes;
+		length -= PGSIZE;
 		offset += read_bytes;
 		addr += PGSIZE;
 	}
 
+	struct page *mapping_page = spt_find_page(&thread_current()->spt, origin_addr);
+	mapping_page->file_length = origin_length;
+
 	// print_spt();
 
-	return spt_find_page(&thread_current()->spt, origin_addr);
-	// printf("5555555555555555\n");
+	return origin_addr;
 }
 
 /* Do the munmap */
 void
-do_munmap (void *page) {
-	struct page *target_page = (struct page *)page;
-	// printf("do-munmap va: %x\n", target_page->va);
-	// vm_dealloc_page(target_page);
+do_munmap (void *addr) 
+{
+	struct page 	*target_page = spt_find_page(&thread_current()->spt, addr);
+	uint32_t rep = (target_page->file_length % PGSIZE) == 0 ? target_page->file_length / PGSIZE : (target_page->file_length / PGSIZE) + 1;
+	size_t 			length = target_page->file_length;
+
+	// printf("addr: %d, target_page->va: %x\n", addr, target_page->va);
+	// printf("length: %d\n", target_page->file_length);
+
+	while(length > 0)
+	{
+		// printf("target_page->va: %x\n", target_page->va);
+		hash_delete(&thread_current()->spt.spt_hash, &target_page->hash_elem);
+		vm_dealloc_page(target_page);
+
+		// length -= length < PGSIZE ? length : PGSIZE;
+		length -= PGSIZE;
+
+		if(length)
+			target_page = spt_find_page(&thread_current()->spt.spt_hash, addr + PGSIZE);
+	}
 }
