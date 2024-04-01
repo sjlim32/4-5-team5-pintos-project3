@@ -7,6 +7,7 @@ struct file_info
 {
 	struct file *file;
 	size_t page_read_bytes;
+	size_t file_size;
 	off_t off;
 };
 

@@ -333,10 +333,10 @@ process_exit (void) {
     close(fd);
   }
 
-  palloc_free_multiple(curr->fd_table, FDT_PAGES);
-  file_close(curr->runn_file);
-
 	process_cleanup ();
+  file_close(curr->runn_file);
+  palloc_free_multiple(curr->fd_table, FDT_PAGES);
+
 
   sema_up(&curr->wait_sema);                //* WAIT : signal to parent
   sema_down(&curr->exit_sema);

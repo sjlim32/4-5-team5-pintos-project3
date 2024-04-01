@@ -365,7 +365,7 @@ mmap(void *addr, size_t length, int writable, int fd, off_t offset)
     return NULL;
 
   if(file == NULL)
-    return;
+    return NULL;
 
   // printf("system call mmap addr: %x\n", addr);
 

@@ -5,6 +5,7 @@
 #include "threads/malloc.h"
 #include "include/userprog/process.h"
 #include "include/lib/round.h"
+#include "threads/mmu.h"
 
 static bool file_backed_swap_in (struct page *page, void *kva);
 static bool file_backed_swap_out (struct page *page);
@@ -50,11 +51,16 @@ file_backed_swap_out (struct page *page) {
 /* Destory the file backed page. PAGE will be freed by the caller. */
 static void
 file_backed_destroy (struct page *page) {
-	struct file_page *file_page = &page->file;
+	struct file_page 	*file_page = &page->file;
+	struct file_info 	*temp_file = (struct file_info *)page->uninit.aux;
 
-	// free(file_page->aux);
+	if(temp_file)
+	{
+		file_write_at(temp_file->file, pg_round_down(page->frame->kva), temp_file->file_size, 0);
+	}
 	if(page->uninit.aux)
 		free(page->uninit.aux);
+
 }
 
 static bool
@@ -66,11 +72,11 @@ lazy_load(struct page *page, void *aux)
 	off_t				offset = f_info->off;
 
 	uint8_t *kpage = (uint8_t *)page->frame->kva;
+	// page->file.aux = f_info;
 
 	file_seek(file, offset);
 	if (file_read (file, kpage, read_bytes) != (int) read_bytes)
 	{
-		printf("file_read failed\n");
 		palloc_free_page (kpage);
 		return false;
 	}
@@ -96,10 +102,8 @@ do_mmap (void *addr, size_t length, int writable, struct file *file, off_t offse
 	if(offset % PGSIZE != 0 || length == 0)
 		return NULL;
 
-	// printf("mmap file size: %d\n", file_length(file));
-
 	file_seek (file, offset);
-	while (length > 0)
+	while ((int)length > 0)
 	{
 		size_t read_bytes = total_length < PGSIZE ? total_length : PGSIZE;
 
@@ -108,6 +112,7 @@ do_mmap (void *addr, size_t length, int writable, struct file *file, off_t offse
 
 		f_info->file = file;
 		f_info->page_read_bytes = read_bytes;
+		f_info->file_size = file_length(file);
 		f_info->off = offset;
 
 		// printf("file_info->page_read_bytes: %d\n", f_info->page_read_bytes);
@@ -129,8 +134,6 @@ do_mmap (void *addr, size_t length, int writable, struct file *file, off_t offse
 	struct page *mapping_page = spt_find_page(&thread_current()->spt, origin_addr);
 	mapping_page->file_length = origin_length;
 
-	// print_spt();
-
 	return origin_addr;
 }
 
@@ -143,7 +146,6 @@ do_munmap (void *addr)
 	size_t 			length = target_page->file_length;
 
 	// printf("addr: %d, target_page->va: %x\n", addr, target_page->va);
-	// printf("length: %d\n", target_page->file_length);
 
 	while(length > 0)
 	{
