@@ -24,9 +24,6 @@ vm_init (void) {
 	/* TODO: Your code goes here. */
 }
 
-/* Get the type of the page. This function is useful if you want to know the
- * type of the page after it will be initialized.
- * This function is fully implemented now. */
 enum vm_type
 page_get_type (struct page *page) {
 	int ty = VM_TYPE (page->operations->type);
@@ -43,19 +40,12 @@ static struct frame *vm_get_victim (void);
 static bool vm_do_claim_page (struct page *page);
 static struct frame *vm_evict_frame (void);
 
-static uint64_t get_offset(void *);
-static void set_offset(int *, int *);
 static void hash_copy_action (struct hash_elem *, void *);
 
-/* Create the pending page object with initializer. If you want to create a
- * page, do not create it directly and make it through this function or
- * `vm_alloc_page`. */
 bool
-vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
-		vm_initializer *init, void *aux) {
+vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable, vm_initializer *init, void *aux) {
 	ASSERT (VM_TYPE(type) != VM_UNINIT)
 
-	// printf("#########################%s#######################\n", "vm_alloc_page_with_initializer");
 	struct supplemental_page_table 	*spt = &thread_current ()->spt;
 	struct page						*page = malloc(sizeof(struct page));
 	void 							*initializer;
@@ -65,11 +55,8 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 
 	if(!page)	goto err;
 
-	/* Check wheter the upage is already occupied or not. */
-	if (spt_find_page (spt, upage) == NULL) {
-		/* TODO: Create the page, fetch the initialier according to the VM type,
-		 * TODO: and then create "uninit" page struct by calling uninit_new. You
-		 * TODO: should modify the field after calling the uninit_new. */
+	if (spt_find_page (spt, upage) == NULL) 
+	{
 		switch(type)
 		{
 			case VM_ANON:
@@ -86,7 +73,6 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 
 		uninit_new(page, upage, init, type, aux, initializer);
 
-		/* TODO: Insert the page into the spt. */
 		if(spt_insert_page(spt, page))
 			return true;
 		else
@@ -103,12 +89,10 @@ err:
 struct page *
 spt_find_page (struct supplemental_page_table *spt, void *va) {
 	struct page 		*page = NULL;
-	// printf("#########################%s#######################\n", "spt_find_page");
 
 	if(hash_empty(&spt->spt_hash))
 		return page;
 
-	// temp_elem = &temp_hash.buckets[key];
 	page = page_lookup(va, spt);
 
 	return page;
@@ -153,10 +137,6 @@ vm_evict_frame (void) {
 	return NULL;
 }
 
-/* palloc() and get frame. If there is no available page, evict the page
- * and return it. This always return valid address. That is, if the user pool
- * memory is full, this function evicts the frame to get the available memory
- * space.*/
 static struct frame *
 vm_get_frame (void) {
 	struct frame *frame = NULL;
@@ -175,8 +155,18 @@ vm_get_frame (void) {
 
 /* Growing the stack. */
 static void
-vm_stack_growth (void *addr) {
-	vm_alloc_page(VM_ANON | IS_STACK, pg_round_down(addr), true);
+vm_stack_growth (void *addr)
+{
+	struct supplemental_page_table	*spt = &thread_current ()->spt;
+	void							*address = pg_round_down (addr);
+	struct page						*p = spt_find_page (spt, address);
+
+	while (!p)
+	{
+		vm_alloc_page (VM_ANON | IS_STACK, address, true);
+		address += PGSIZE;
+		p = spt_find_page (spt, address);
+	}
 }
 
 /* Handle the fault on write_protected page */
@@ -187,27 +177,14 @@ vm_handle_wp (struct page *page UNUSED) {
 /* Return true on success */
 bool
 vm_try_handle_fault (struct intr_frame *f, void *addr, bool user, bool write, bool not_present) {
-	struct supplemental_page_table 	*spt = &thread_current ()->spt;
-	struct page 					*page = NULL;
-	uint64_t						cur_rsp = user ? thread_current()->f_rsp : f->rsp;
+	uintptr_t rsp = f->rsp;
 
+	bool addr_in_stack = ((uint64_t)addr >= (rsp - 8)) && (USER_STACK - (uint64_t)addr < (1 << 20));
+	if (addr_in_stack) {
+		vm_stack_growth (addr);
+	}
 
-	if(is_kernel_vaddr(addr))
-		return false;
-
-	if((cur_rsp - 8) >= (uint64_t)addr + PGSIZE && (USER_STACK - (uint64_t)addr) <= (1 << 20))
-		vm_stack_growth(addr);
-
-	// printf("#########################%s#######################\n", "vm_try_handle_fault");
-
-	page = spt_find_page(spt, addr);
-
-	// print_spt();
-
-	if(!page)
-		return false;
-
-	return vm_do_claim_page (page);
+	return vm_claim_page (addr);
 }
 
 /* Free the page.
@@ -223,18 +200,10 @@ bool
 vm_claim_page (void *va) {
 	struct page *page = NULL;
 
-	// printf("#########################%s#######################\n", "vm_claim_page");
-
 	page = spt_find_page(&thread_current()->spt, va);
-
-	// print_spt();
-
-	// printf("vm_claim_page function activate\n");
 
 	if(page == NULL)
 		return false;
-
-	// printf("!!!!!!!!!!!!!\n");
 
 	return vm_do_claim_page (page);
 }
@@ -246,45 +215,25 @@ vm_do_claim_page (struct page *page) {
 	struct thread 	*t = thread_current ();
 	bool writable;
 
-	/* Set links */
 	frame->page = page;
 	page->frame = frame;
-
-	// printf("#########################%s#######################\n", "vm_do_claim_page");
 
 	writable = (uint64_t)page->va & PTE_W;
 
 	if (!(pml4_get_page (t->pml4, (uint64_t)page->va & ~PGMASK) == NULL
 			&& pml4_set_page (t->pml4, (uint64_t)page->va & ~PGMASK, frame->kva, writable)))
 	{
-		// printf("pml4 set failed\n");
 		palloc_free_page (frame->kva);
 		return false;
 	}
 
 	frame->kva = (uint64_t)frame->kva | ((uint64_t)page->va & PGMASK);
 
-	// printf("frame->kva: %x\n", frame->kva);
-
 	return swap_in (page, frame->kva);
 }
 
-static void
-set_offset(int *kva, int *va)
-{
-	kva = (uint64_t)kva | get_offset(va);
-}
-
-static uint64_t
-get_offset(void *va)
-{
-	return (uint64_t)va & 0xfff;
-}
-
-/* Initialize new supplemental page table */
 void
 supplemental_page_table_init (struct supplemental_page_table *spt) {
-	// printf("#########################%s#######################\n", "supplemental_page_table_init");
 	hash_init(&spt->spt_hash, page_hash_function, page_compare_va, NULL);
 }
 
@@ -315,8 +264,6 @@ hash_copy_action (struct hash_elem *e, void *aux)
 	struct file_info				*f_info;
 	bool	   						origin_writable;
 	bool							temp_bool;
-
-	// printf("#########################%s#######################\n", "hash_copy_action");
 
 	origin_page = hash_entry(e, struct page, hash_elem);
 	origin_writable = (uint64_t)origin_page->va & PTE_W;
@@ -366,7 +313,6 @@ supplemental_page_table_copy (struct supplemental_page_table *dst, struct supple
 	struct file_info				*f_info;
 	bool	   						parent_writable;
 	
-	// printf("#########################%s#######################\n", "supplemental_page_table_copy");
 	dst->spt_hash.aux = src;
 	src->spt_hash.aux = dst;
 

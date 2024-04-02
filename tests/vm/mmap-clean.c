@@ -39,6 +39,10 @@ test_main (void)
   CHECK (read (handle, buffer, sizeof buffer) == sizeof buffer,
          "read \"sample.txt\"");
 
+
+  // printf("buffer: %s\n", buffer);
+  // printf("overwrite: %s\n", overwrite);
+
   /* Verify that file overwrite worked. */
   if (memcmp (buffer, overwrite, strlen (overwrite))
       || memcmp (buffer + strlen (overwrite), sample + strlen (overwrite),

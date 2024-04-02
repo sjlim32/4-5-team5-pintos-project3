@@ -19,6 +19,7 @@
 #include "threads/vaddr.h"
 /* ------ Project 3 ------ */
 #include "vm/vm.h"
+#include "filesys/file.h"
 /* ------------------------ */
 
 void syscall_entry (void);
@@ -210,7 +211,7 @@ open (const char *file) {
 static void
 check_addr (const char *f_addr) {
   #ifdef VM
-    if (!is_user_vaddr(f_addr) || f_addr == NULL || (spt_find_page(&thread_current()->spt, f_addr) == NULL))
+    if (!is_user_vaddr(f_addr) || f_addr == NULL)
     {
       exit(-1);
     }
@@ -226,30 +227,48 @@ check_addr (const char *f_addr) {
 
 static void
 check_buffer (void *buffer) {
-#ifdef VM
-  if (!(buffer && is_user_vaddr (buffer))) {
-    exit (-1);
-  }
-  struct thread *curr = thread_current ();
-  struct page *find_page = spt_find_page (&curr->spt, (void *)buffer);
-  if (!find_page) {
-    if (buffer < USER_STACK && (curr->f_rsp < buffer)) {
-      return;
-    }
+// #ifdef VM
+//   if (!(buffer && is_user_vaddr (buffer))) {
+//     exit (-1);
+//   }
+//   struct thread *curr = thread_current ();
+//   struct page *find_page = spt_find_page (&curr->spt, (void *)buffer);
+//   if (!find_page) {
+//     if (buffer < USER_STACK && (curr->f_rsp < buffer)) {
+//       return;
+//     }
 
+//     exit (-1);
+//   }
+//   else {
+//     bool writable = (uint64_t)find_page->va & PTE_W;
+//     if (!writable) {
+//       exit (-1);
+//     }
+//   }
+// #else
+//   if (!is_user_vaddr (buffer) || buffer == NULL || !pml4_get_page (thread_current ()->pml4, buffer)) {
+//     exit(-1);
+//   }
+// #endif
+  void *addr = (void *)buffer;
+  #ifdef VM
+  if (!addr || !is_user_vaddr (addr)) {
     exit (-1);
   }
   else {
+    struct page *find_page = spt_find_page (&thread_current ()->spt, addr);
     bool writable = (uint64_t)find_page->va & PTE_W;
     if (!writable) {
       exit (-1);
     }
   }
-#else
+
+  #else
   if (!is_user_vaddr (buffer) || buffer == NULL || !pml4_get_page (thread_current ()->pml4, buffer)) {
     exit(-1);
   }
-#endif
+  #endif
 }
 
 static bool
@@ -290,6 +309,7 @@ read (int fd, void *buffer, unsigned length) {
   int read_size = file_read(f, buffer, length);
   lock_release(&filesys_lock);
 
+  // printf("buffer: %s, fd: %d\n", buffer, fd);
   return read_size;
 }
 
@@ -304,8 +324,8 @@ write (int fd, const void *buffer, unsigned length) {
     return 0;
   }
   else {
-    struct thread *curr = thread_current ();
-    struct file *f = curr->fd_table[fd];
+    struct thread   *curr = thread_current ();
+    struct file     *f = curr->fd_table[fd];
 
     if (f == NULL)
       return -1;
@@ -360,16 +380,17 @@ mmap(void *addr, size_t length, int writable, int fd, off_t offset)
 {
   struct thread   *cur_thread = thread_current();
   struct file     *file = cur_thread->fd_table[fd];
+  struct file     *re_file;
 
   if (fd > FD_COUNT_LIMIT || fd == STDOUT_FILENO || fd < 0)
     return NULL;
 
   if(file == NULL)
     return NULL;
+  
+  re_file = file_reopen(file);
 
-  // printf("system call mmap addr: %x\n", addr);
-
-  return do_mmap(addr, length, writable, file, offset);
+  return do_mmap(addr, length, writable, re_file, offset);
 }
 
 void

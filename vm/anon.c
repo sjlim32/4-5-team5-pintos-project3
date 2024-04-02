@@ -21,7 +21,7 @@ static const struct page_operations anon_ops = {
 void
 vm_anon_init (void) {
 	/* TODO: Set up the swap_disk. */
-	swap_disk = NULL;
+	swap_disk = disk_get(1, 1);
 }
 
 /* Initialize the file mapping */
@@ -49,9 +49,6 @@ anon_swap_out (struct page *page) {
 static void
 anon_destroy (struct page *page) {
 	struct anon_page *anon_page = &page->anon;
-	// free(anon_page->aux);
-
 	if(page->uninit.aux)
 		free(page->uninit.aux);
-	// palloc_free_page(page->frame->kva);
 }
