@@ -18,6 +18,7 @@
 #include "threads/palloc.h"
 #include "threads/vaddr.h"
 /* ------------------------ */
+#include "vm/file.h"
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
@@ -53,12 +54,11 @@ syscall_init (void) {
 /* The main system call interface */
 //! Project 2 - System calls
 void
-syscall_handler (struct intr_frame *f UNUSED) {
+syscall_handler (struct intr_frame *f) {
   //? 시스템콜 호출 번호 - %rax
   //? 인자 - %rdi, $rsi, %rdx, %r10, %r8, %r9
 
   int sys_number = f->R.rax;
-  thread_current ()->stack_bottom = f->rsp;
 
   switch (sys_number) {
 
@@ -117,17 +117,17 @@ syscall_handler (struct intr_frame *f UNUSED) {
       close(f->R.rsi);
       break;
 
-      case SYS_MMAP:          /* 12 Report current position in a file. */
-      f->R.rax = mmap((void *)f->R.rdi, f->R.rsi, f->R.rdx, f->R.r10, (off_t)f->R.r8);
-      break;
+    case SYS_MMAP:          /* 12 Report current position in a file. */
+    f->R.rax = mmap((void *)f->R.rdi, f->R.rsi, f->R.rdx, f->R.r10, f->R.r8);
+    break;
 
     case SYS_MUNMAP:         /* 13 Close a file. */
-      munmap((void *)f->R.rdi);
-      break;
+    munmap((void *)f->R.rdi);
+    break;
 
     default:
-      printf("system call!\n");
-      thread_exit ();
+    printf("system call!\n");
+    thread_exit ();
   }
 }
 
@@ -189,7 +189,7 @@ open (const char *file) {
   if (f == NULL)
     return -1;
 
-  struct thread *curr = thread_current();
+  struct thread *curr = thread_current ();
   struct file **fdt = curr->fd_table;
 
   while (curr->fd_idx < FD_COUNT_LIMIT && fdt[curr->fd_idx])
@@ -208,13 +208,12 @@ open (const char *file) {
 static void
 check_addr (const char *f_addr) {
 #ifdef VM
-  // printf ("@@@@@@@@@@@@@@is writable? %p, %d:\n", );
   struct page* page;
   if (!is_user_vaddr(f_addr) || f_addr == NULL) {
     exit(-1);
   }
   if ((page = spt_find_page (&thread_current ()->spt, f_addr)) == NULL) {
-    // printf ("[check_addr] FAILED: cannot find page with f_addr: %p\n", f_addr);
+    // printf ("[check_addr] FAILED: cannot find page with f_addr: %p\n", f_addr); 
     exit (-1);
   }
   return;
@@ -228,20 +227,18 @@ check_addr (const char *f_addr) {
 #endif
 }
 
-static void
+void
 check_buffer (const char *buffer) {
-#ifdef VM
-  // printf ("@@@@@@@@@@@@@@is writable? %p, %d:\n", );
   struct thread* t = thread_current ();
   struct page* page = spt_find_page (&t->spt, buffer);
 
-  if (!is_user_vaddr(buffer) || buffer == NULL) {
+  if (buffer == NULL || !is_user_vaddr(buffer)) {
     // printf ("@@@@@@@@@@@@@@@@exit!!!!!!!!!!\n");
     exit(-1);
   }
 
   if (page == NULL) {
-    if (buffer < USER_STACK && (t->stack_bottom) < buffer) {
+    if (buffer < USER_STACK) {
       return;
     }
     // printf ("##############exit!!!!!!!!!!\n");
@@ -249,20 +246,31 @@ check_buffer (const char *buffer) {
   } else {
     bool writable = pg_ofs (page->va) & PTE_W;
     if (!writable) {
-    // printf ("$$$$$$$$$$$$$$$exit!!!!!!!!!!\n");
+      // printf ("$$$$$$$$$$$$$$$exit!!!!!!!!!!\n");
       exit (-1);
     }
   }
 
   return;
+}
 
-#else
+bool
+check_mapaddr (const char *buffer) {
+  struct thread* t = thread_current ();
+  struct page* page = spt_find_page (&t->spt, buffer);
+  // printf ("buffer: %p in check_mapaddr\n\n", buffer);
 
-  if (!is_user_vaddr(f_addr) || f_addr == NULL || !pml4_get_page(thread_current()->pml4, f_addr)) {
-    exit(-1);
+  if (!is_user_vaddr(buffer) || buffer == NULL) {
+    // printf ("@@@@@@@@@@@@@@@@exit!!!!!!!!!!\n");
+    return false;
   }
 
-#endif
+  if (page != NULL) {
+    // printf ("##############exit!!!!!!!!!!\n");
+    return false;
+  }
+
+  return true;
 }
 
 static bool
@@ -289,8 +297,7 @@ filesize (int fd) {
 static int
 read (int fd, void *buffer, unsigned length) {
   check_buffer (buffer);
-	// printf ("=========syscall read after check_addr %p==============\n", buffer); ////////////////////////////////
-	// printf ("=========syscall read after check_addr %p==============\n", buffer + length - 1); ////////////////////////////////
+	// printf ("=========syscall read after check_addr %p, %d\n", buffer, fd); ////////////////////////////////
   if (fd > FD_COUNT_LIMIT || fd == STDOUT_FILENO || fd < 0)
     return -1;
 
@@ -301,7 +308,7 @@ read (int fd, void *buffer, unsigned length) {
     return -1;
 
   lock_acquire(&filesys_lock);
-  int read_size = file_read(f, buffer, length);
+  int read_size = file_read (f, buffer, length);
   lock_release(&filesys_lock);
 
   return read_size;
@@ -312,7 +319,7 @@ write (int fd, const void *buffer, unsigned length) {
   check_addr(buffer);
   check_addr (buffer + length - 1);
 
-  if (fd > FD_COUNT_LIMIT || fd <= 0)
+  if (fd > FD_COUNT_LIMIT || fd == STDIN_FILENO || fd < 0)
     return -1;
 
   if (fd == 1) {
@@ -371,46 +378,38 @@ close (int fd) {
   file_close(f);
 }
 
-/* fd로 열린 파일에서 오프셋 바이트부터 시작하여 프로세스의 가상 주소 공간 addr에 length 바이트를 매핑합니다.
- * 파일 전체가 addr에서 시작하는 연속적인 가상 페이지로 매핑됩니다.
- * 파일의 길이가 PGSIZE의 배수가 아닌 경우 최종 매핑된 페이지의 일부 바이트가 파일의 끝을 넘어서게 됩니다.
- * 페이지가 로드될 때 이러한 바이트를 0으로 설정하고, 페이지가 디스크로 다시 기록될 때 이러한 바이트를 삭제하세요.
- * 성공하면 파일이 매핑된 가상 주소를 반환합니다.
- * 실패하면 파일을 매핑할 수 없는 유효하지 않은 주소인 NULL을 반환해야 합니다.
- *
- * mmap을 호출하면 파일이 0바이트 길이일 경우 실패합니다.
- * addr이 페이지에 맞지 않는 경우 또는 이미 매핑된 페이지 집합과 겹치는 경우
- * (스택 또는 실행 가능한 로드 시간에 매핑된 페이지 포함) 실패해야 합니다.
- * Linux에서 addr이 NULL인 경우 커널은 매핑을 생성할 적절한 주소를 찾습니다.
- * 단순성을 위해 주어진 addr에 mmap을 시도하세요. 따라서 addr이 0인 경우 실패해야 합니다.
- * 이는 일부 Pintos 코드가 가상 페이지 0이 매핑되지 않았다고 가정하기 때문입니다.
- * 길이가 0인 경우 mmap은 실패해야 합니다.
- * 마지막으로, 콘솔 입력 및 출력을 나타내는 파일 디스크립터는 매핑할 수 없습니다.
- * 
- * 메모리 맵 페이지는 익명 페이지와 마찬가지로 게으르게 할당되어야 합니다.
- * 페이지 개체를 만들기 위해 vm_alloc_page_with_initializer 또는 vm_alloc_page를 사용할 수 있습니다. */
 void *
 mmap (void *addr, size_t length, int writable, int fd, off_t offset) {
-	return;
+  // printf ("============start mmap                                      \n");
+  if ((int)length <= 0 || fd > FD_COUNT_LIMIT || fd <= 1
+    || !addr || !is_user_vaddr (addr)
+    || !(pg_ofs (addr) == 0)
+    || !(pg_ofs (offset) == 0)) {
+		return NULL;
+	}
+
+	if (!check_mapaddr (addr)) {
+    return NULL;
+  }
+
+  if (fd > FD_COUNT_LIMIT || fd < 2) {
+    return NULL;
+  }
+
+  struct thread* curr = thread_current ();
+  struct file *f = curr->fd_table[fd];
+
+  if (f == NULL) {
+    return NULL;
+  }
+
+  return do_mmap (pg_round_down (addr), length, writable, f, offset);
 }
 
-/* 아직 매핑되지 않은 동일한 프로세스에 의해 이전에 호출된 mmap에 의해 반환된 가상 주소 범위 addr에 대한 매핑을 해제합니다.
-
- * 모든 매핑은 프로세스가 종료될 때 묵시적으로 해제됩니다.
- * 매핑이 해제되면 명시적 또는 묵시적으로 프로세스에 의해 기록된 모든 페이지가 파일에 기록되어야 하며,
- * 기록되지 않은 페이지는 그렇지 않아야 합니다. 그런 다음 페이지가 프로세스의 가상 페이지 목록에서 제거됩니다.
-
- * 파일을 닫거나 제거하면 해당 파일의 매핑이 해제되지 않습니다.
- * 한 번 생성된 매핑은 munmap이 호출되거나 프로세스가 종료될 때까지 유효합니다.
- * 유닉스 규칙을 따릅니다. 자세한 내용은 열린 파일 제거를 참조하십시오.
- * 각 매핑에 대해 파일을 별도로 참조하고 독립적으로 얻으려면 file_reopen 함수를 사용해야 합니다.
-
- * 동일한 파일을 두 개 이상의 프로세스가 매핑하는 경우 일관된 데이터를 볼 필요가 없습니다
- * 유닉스는 두 매핑이 동일한 물리적 페이지를 공유하도록 만들고 mmap 시스템 호출에는
- * 페이지를 공유 또는 개인(쓰기 시 복사)로 지정할 수 있는 인수도 있습니다.
-
- * vm_file_init 및 vm_file_initializer를 vm/vm.c에서 필요에 따라 수정할 수 있습니다. */
 void
 munmap (void *addr) {
-	return;
+	// printf ("=========syscall munmap before check_addr %p==============\n", addr); ////////////////////////////////
+  check_addr (addr);
+	// printf ("=========syscall munmap after check_addr %p==============\n", addr); ////////////////////////////////
+	return do_munmap (pg_round_down (addr));
 }

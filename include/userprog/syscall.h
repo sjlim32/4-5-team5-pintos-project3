@@ -21,9 +21,11 @@ typedef int off_t;
 #define EXIT_SUCCESS 0          /* Successful execution. */
 #define EXIT_FAILURE 1          /* Unsuccessful execution. */
 
-struct lock filesys_lock;
+static struct lock filesys_lock;
 
 static void check_addr(const char *f_addr);
+void check_buffer (const char *buffer);
+bool check_mapaddr (const char *buffer);
 
 static void halt (void) NO_RETURN;
 void exit (int status) NO_RETURN;

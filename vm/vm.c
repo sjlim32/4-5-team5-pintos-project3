@@ -5,6 +5,7 @@
 #include "vm/inspect.h"
 #include "lib/kernel/hash.h"
 #include "lib/string.h"
+#include "kernel/list.h"
 #include "threads/mmu.h"
 #include "userprog/process.h"
 
@@ -14,6 +15,7 @@ void
 vm_init (void) {
 	vm_anon_init ();
 	vm_file_init ();
+	list_init (&frame_present);
 #ifdef EFILESYS  /* For project 4 */
 	pagecache_init ();
 #endif
@@ -58,6 +60,7 @@ bool
 vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		vm_initializer *init, void *aux) {
 	// printf ("=========vm_alloc_page_with_initializer start %p==============\n", upage); ////////////////////////////////
+	// print_spt ();
 	ASSERT (VM_TYPE(type) != VM_UNINIT)
 
 	struct supplemental_page_table *spt = &thread_current ()->spt;
@@ -68,6 +71,7 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 	/* Check wheter the upage is already occupied or not. */
 	if (spt_find_page (spt, upage) == NULL) {
 		struct page* n_page = malloc (sizeof (struct page));
+		file_info *f_info = aux;
 
 		if (writable) {
 			upage = (void *)((uint64_t)upage | PTE_W);
@@ -81,7 +85,8 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 
 		case VM_FILE:
 			uninit_new (n_page, upage, init, type, aux, file_backed_initializer);
-			printf ("[vm_alloc_page_with_initializer] FAILED: type is VM_FILE now\n");
+			// printf ("remain_bytes: %d in VM_FILE\n", f_info->remain_bytes);
+			n_page->file_length = f_info ? f_info->remain_bytes : 0;
 			break;
 
 		case VM_PAGE_CACHE:
@@ -97,7 +102,7 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		}
 		return true;
 	}
-	printf ("[vm_alloc_page_with_initializer] spt_find_page failed: FOUND\n");
+	// printf ("[vm_alloc_page_with_initializer] spt_find_page failed: FOUND\n");
 err:
 	return false;
 }
@@ -131,9 +136,9 @@ spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
 /* Get the struct frame, that will be evicted. */
 static struct frame *
 vm_get_victim (void) {
-	struct frame *victim = NULL;
 	 /* TODO: The policy for eviction is up to you. */
-
+	 // FIFO
+	struct frame *victim = list_entry (list_pop_front (&frame_present), struct frame, evict_elem);
 	return victim;
 }
 
@@ -141,10 +146,18 @@ vm_get_victim (void) {
  * Return NULL on error.*/
 static struct frame *
 vm_evict_frame (void) {
-	struct frame *victim UNUSED = vm_get_victim ();
+	struct frame *victim = vm_get_victim ();
+	// ASSERT (pg_ofs (victim->kva) & PTE_D);
 	/* TODO: swap out the victim and return the evicted frame. */
+	if (!swap_out (victim->page)) {
+		printf ("[vm_evict_frame] FAILED: swap out fail\n");
+		return NULL;
+	}
 
-	return NULL;
+	victim->page->va = NULL;
+	victim->page = NULL;
+
+	return victim;
 }
 
 /* palloc_get_page를 호출하여 사용자 풀에서 새로운 물리 페이지를 가져옵니다.
@@ -164,16 +177,17 @@ vm_get_frame (void) {
 		return NULL;
 	}
 
+	ASSERT (frame != NULL);
+	ASSERT (frame->page == NULL);
+
 	/* TODO: Fill this function. */
 	if ((frame->kva = (struct page *)palloc_get_page (PAL_ZERO | PAL_USER)) == NULL) {
 		// 스왑 디스크 해줘야 함.
-		// eviction page 설정, LRU 기법
-		// swap_out ()
-		PANIC ("todo: swap_disk\n");
+		// PANIC ("todo: swap_disk\n");
+		frame = vm_evict_frame ();
 	}
+	list_push_back (&frame_present, &frame->evict_elem);
 
-	ASSERT (frame != NULL);
-	ASSERT (frame->page == NULL);
 	return frame;
 }
 
@@ -187,7 +201,16 @@ vm_get_frame (void) {
 bool
 vm_stack_growth (void *addr) {
 	// printf ("=========#PG passed addr: { %p }\n", addr); ///////////////////////////////////////////////////
-	return vm_alloc_page (VM_ANON | IS_STACK, addr, true) && vm_claim_page (addr);
+	bool succ = false;
+
+	struct page* find_page;
+
+	while (vm_alloc_page (VM_ANON, addr, true) == true) {
+		succ &= vm_claim_page (addr);
+		addr += PGSIZE;
+	}
+
+	return succ;
 }
 
 /* Handle the fault on write_protected page */
@@ -204,17 +227,24 @@ vm_handle_wp (struct page *page UNUSED) {
 bool
 vm_try_handle_fault (struct intr_frame *f, void *addr,
 		bool user, bool write, bool not_present) {
+	uintptr_t curr_rsp = user ? f->rsp : thread_current ()->tf.rsp;
+
+	bool addr_check = (curr_rsp - 8 <= addr && curr_rsp + 32 >= addr) && addr > USER_STACK - ONE_MB;
 	// printf ("=========vm_try_handle_fault start==============\n"); ////////////////////////////////
-	// printf ("============according to f, growth accept start at: %p\n", f->rsp - 0x8);
 	// printf ("============according to stack_bottom, growth accept start at: %p\n", curr_rsp - 0x8);
 	// printf ("============input addr in try_handle: %p\n", addr);
 	// print_spt ();
-	uintptr_t curr_rsp = user ? thread_current ()->stack_bottom : f->rsp;
-
-	if (curr_rsp - 8 >= (addr + PGSIZE) && addr > USER_STACK - ONE_MB) {
-		return vm_stack_growth (addr);
+	
+	if (addr == NULL) {
+		return false;
 	}
 
+	// This is for stack growth.
+	if (addr_check) {
+		vm_stack_growth (addr);
+	}
+
+	// This is for lazy loading.
 	return vm_claim_page (addr);
 }
 
@@ -232,14 +262,9 @@ bool
 vm_claim_page (void *va) {
 	// printf ("=========vm_claim_page start==============\n"); ////////////////////////////////
 	struct page *upage = spt_find_page (&thread_current ()->spt, va);
-	bool is_stack;
 
 	if (upage == NULL) {
 		// printf ("[vm_claim_page] FAILED: page not found!: { %s }\n", thread_name ());
-		return false;
-	}
-
-	if ((is_stack = upage->uninit.type & IS_STACK) == false) {
 		return false;
 	}
 
@@ -268,18 +293,18 @@ vm_do_claim_page (struct page *page) {
 	/* TODO: Insert page table entry to map page's VA to frame's PA. */
 	struct thread *t = thread_current ();
 	uint64_t uaddr = pg_round_down (page->va);
+	uint64_t kaddr = pg_round_down (frame->kva);
 	uint64_t offset = pg_ofs (page->va);
 	bool writable = offset & PTE_W;
 
 	if (!(pml4_get_page (t->pml4, uaddr) == NULL
-			&& pml4_set_page (t->pml4, uaddr, frame->kva, writable))) {
-		printf("fail with pml4\n");
-		palloc_free_page (frame->kva);
+			&& pml4_set_page (t->pml4, uaddr, kaddr, writable))) {
+		// printf("fail with pml4\n");
+		palloc_free_page (kaddr);
 		return false;
 	}
 
 	frame->kva = (uint64_t)frame->kva | offset;
-	// print_spt ();
 	return swap_in (page, frame->kva);
 }
 
@@ -331,7 +356,10 @@ static void hash_table_copy (struct hash_elem *e, void *aux) {
 		break;
 
 	case VM_FILE:
-		printf ("[supplemental_page_table_copy] FAILED: not implemented\n");
+		vm_alloc_page (pf_type, parent_page->va, writable);
+		child_page = spt_find_page (dst, parent_page->va);
+		vm_do_claim_page (child_page);
+		memcpy (child_page->frame->kva, parent_page->frame->kva, PGSIZE);
 		break;
 	
 	default:
@@ -360,6 +388,10 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 /* Free the resource hold by the supplemental page table */
 static void hash_table_kill (struct hash_elem *e, void *aux UNUSED) {
 	struct page* d_page = hash_entry (e, struct page, h_elem);
+	// if (d_page->frame != NULL) {
+	// 	printf ("==========kill_page: %p, %p, %p\n", d_page, d_page->frame->kva, d_page->va );
+	// }
+	// print_spt ();
 	vm_dealloc_page (d_page);
 }
 
@@ -367,7 +399,7 @@ void
 supplemental_page_table_kill (struct supplemental_page_table *spt) {
 	/* TODO: Destroy all the supplemental_page_table hold by thread and
 	 * TODO: writeback all the modified contents to the storage. */
-	// printf ("=========supplemental_page_table_kill start==============\n"); ////////////////////////////////
+	// print_spt ();
 	if (hash_empty (&spt->spt_hash)) {
 		return;
 	}

@@ -39,6 +39,7 @@ msg (const char *format, ...)
 void
 fail (const char *format, ...) 
 {
+  // printf ("fail start ====================\n");
   va_list args;
 
   va_start (args, format);

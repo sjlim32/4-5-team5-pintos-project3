@@ -2,6 +2,7 @@
 
 #include "vm/vm.h"
 #include "devices/disk.h"
+#include "kernel/bitmap.h"
 
 /* DO NOT MODIFY BELOW LINE */
 static struct disk *swap_disk;
@@ -17,6 +18,9 @@ static const struct page_operations anon_ops = {
 	.type = VM_ANON,
 };
 
+#define ONE_MB (1 << 20) // 1MB
+static struct bitmap *b_map;
+
 /* 익명 페이지의 스왑을 지원하기 위해 스왑 디스크라는 임시 백드 스토리지를 제공합니다.
  * 익명 페이지의 스왑에 스왑 디스크를 활용할 것입니다.
  * 이 함수에서 스왑 디스크를 설정해야 합니다.
@@ -26,7 +30,10 @@ static const struct page_operations anon_ops = {
 void
 vm_anon_init (void) {
 	/* TODO: Set up the swap_disk. */
-	swap_disk = NULL;
+	swap_disk = disk_get (1, 1);
+	size_t swap_size = disk_size (swap_disk) / PAGE_DISK_SEGMENT;
+	// printf ("in anon_init ================ { %d }\n", swap_size);
+	b_map = bitmap_create (swap_size);
 }
 
 /* 이것은 익명 페이지의 이니셜라이저입니다.
@@ -40,6 +47,7 @@ anon_initializer (struct page *page, enum vm_type type, void *kva) {
 
 	// TODO: disk 관련
 	struct anon_page *anon_page = &page->anon;
+	return true;
 }
 
 /* 디스크에서 데이터 내용을 읽어 메모리로 스왑인합니다.
@@ -48,8 +56,20 @@ anon_initializer (struct page *page, enum vm_type type, void *kva) {
 /* Swap in the page by read contents from the swap disk. */
 static bool
 anon_swap_in (struct page *page, void *kva) {
+	printf ("=========anon_swap_in start==============\n"); ////////////////////////////////
 	struct anon_page *anon_page = &page->anon;
+	size_t swap_slot = anon_page->swap_slot;
+	void* kaddr = pg_round_down (page->frame->kva);
 
+	for (int i = 0 ; i < PAGE_DISK_SEGMENT; i++) {
+		disk_read (swap_disk, swap_slot * PAGE_DISK_SEGMENT + i, kaddr + (i * DISK_SECTOR_SIZE));
+	}
+	page->va = (uint64_t)page->va | PTE_P;
+
+	bitmap_set (b_map, swap_slot, 0);
+	anon_page->swap_slot = -1;
+
+	return true;
 }
 
 /* swap_in 보다 먼저 구현
@@ -60,8 +80,28 @@ anon_swap_in (struct page *page, void *kva) {
 /* Swap out the page by writing contents to the swap disk. */
 static bool
 anon_swap_out (struct page *page) {
+	// printf ("=========anon_swap_out start==============\n"); ////////////////////////////////
+	// printf ("page va %p\n", page->va);
+	// printf ("page frame kva %p\n", page->frame->kva);
+	// print_spt ();
 	struct anon_page *anon_page = &page->anon;
-	page->va = pg_ofs (page->va) | PTE_P;
+	size_t swap_slot = bitmap_scan_and_flip (b_map, 0, 1, 0);
+
+	if (swap_slot == BITMAP_ERROR) {
+		PANIC ("[anon_swap_out] FAILED: bitmap space not enough\n");
+	}
+
+	void* kaddr = pg_round_down (page->frame->kva);
+	anon_page->swap_slot = swap_slot;
+
+	for (int i = 0; i < PAGE_DISK_SEGMENT; i++) {
+		disk_write (swap_disk, swap_slot * PAGE_DISK_SEGMENT + i, kaddr + (i * DISK_SECTOR_SIZE));
+	}
+
+	pml4_clear_page (thread_current ()->pml4, pg_round_down (page->va));
+	// page->va = (uint64_t)page->va & ~PTE_P;
+
+	return true;
 }
 
 /* 익명 페이지가 보유한 리소스를 해제합니다.
@@ -71,7 +111,12 @@ static void
 anon_destroy (struct page *page) {
 	struct anon_page *anon_page = &page->anon;
 	
-	if (anon_page->aux != NULL) {
-		free (anon_page->aux);
+	if (page->uninit.aux != NULL) {
+		free (page->uninit.aux);
 	}
+	
+	if (page->frame) {
+    list_remove (&page->frame->evict_elem);
+    free (page->frame);
+  	}
 }

@@ -163,7 +163,7 @@ __do_fork (void *aux) {
 	struct thread *curr = thread_current ();
 	/* --- Project 2 - System call --- */
 	struct intr_frame *parent_if = &parent->parent_if;
-
+	
 	memcpy (&if_, parent_if, sizeof (struct intr_frame));    //* syscall : FORK
 	if_.R.rax = 0;
 
@@ -329,15 +329,16 @@ process_wait (tid_t child_tid UNUSED) {
 void
 process_exit (void) {
 	struct thread *curr = thread_current ();
+	
+	process_cleanup ();
+	file_close (curr->runn_file);
+	// print_spt ();
 
 	for (int fd = 0; fd < FD_COUNT_LIMIT; fd++) {
 		close(fd);
 	}
 
 	palloc_free_multiple(curr->fd_table, FDT_PAGES);
-	file_close(curr->runn_file);
-
-	process_cleanup ();
 
 	sema_up(&curr->wait_sema);                //* WAIT : signal to parent
 	sema_down(&curr->exit_sema);
@@ -349,6 +350,8 @@ process_cleanup (void) {
 	struct thread *curr = thread_current ();
 
 #ifdef VM
+	// printf ("in process_cleanup, ");
+	// print_spt ();
 	supplemental_page_table_kill (&curr->spt);
 #endif
 
@@ -733,9 +736,10 @@ lazy_load_segment (struct page *page, void *aux) {
 	// printf ("=======what is read bytes: %d\n", f_info->read_bytes);
 	file_seek (f_info->file, f_info->ofs);
 	if (file_read (f_info->file, kaddr, f_info->read_bytes) != (int) f_info->read_bytes) {
-		palloc_free_page (page->frame);
+		palloc_free_page (kaddr);
 		return false;
 	}
+	memset (kaddr + f_info->read_bytes, 0, PGSIZE - f_info->read_bytes);
 
 	return true;
 }
@@ -781,7 +785,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		f_info->read_bytes = page_read_bytes;
 		f_info->ofs = ofs;
 
-		if (!vm_alloc_page_with_initializer (VM_ANON | IS_STACK, upage,
+		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
 					writable, lazy_load_segment, f_info)) {
 			return false;
 		}
@@ -798,16 +802,14 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 /* Create a PAGE of stack at the USER_STACK. Return true on success. */
 static bool
 setup_stack (struct intr_frame *if_) {
-	// printf ("=========setup_stack start==============\n"); ////////////////////////////////
-	void *stack_bottom = (void *) (((uint8_t *) USER_STACK) - PGSIZE);
-	thread_current ()->stack_bottom = stack_bottom;
+	bool success = false;
+  void *stack_bottom = (void *)(((uint8_t *)USER_STACK) - PGSIZE);
 
-	/* TODO: Map the stack on stack_bottom and claim the page immediately.
-	 * TODO: If success, set the rsp accordingly.
-	 * TODO: You should mark the page is stack. */
-	/* TODO: Your code goes here */
+  if (vm_alloc_page (VM_ANON, stack_bottom, 1) && vm_claim_page (stack_bottom)) {
+    if_->rsp = USER_STACK;
+    success = true;
+  }
 
-	if_->rsp = USER_STACK;
-	return vm_stack_growth (stack_bottom);
+  return success;
 }
 #endif /* VM */

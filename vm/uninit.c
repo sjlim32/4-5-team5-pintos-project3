@@ -10,6 +10,7 @@
 
 #include "vm/vm.h"
 #include "vm/uninit.h"
+#include "userprog/process.h"
 
 static bool uninit_initialize (struct page *page, void *kva);
 static void uninit_destroy (struct page *page);
@@ -29,6 +30,11 @@ uninit_new (struct page *page, void *va, vm_initializer *init,
 		bool (*initializer)(struct page *, enum vm_type, void *)) {
 	// printf ("=========uninit_new start==============\n"); ////////////////////////////////
 	ASSERT (page != NULL);
+
+	// if (aux != NULL) {
+	// 	file_info *aux_info = aux;
+	// 	printf ("in uninit_new, read_bytes: %d\n", aux_info->read_bytes);
+	// }
 
 	*page = (struct page) {
 		.operations = &uninit_ops,

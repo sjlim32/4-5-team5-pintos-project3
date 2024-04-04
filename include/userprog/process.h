@@ -18,6 +18,7 @@ static void argument_passing (struct intr_frame *if_, int argv_cnt, char **argv_
 typedef struct file_info {
 	struct file* file;
 	uint32_t read_bytes;
+	uint32_t remain_bytes;
 	off_t ofs;
 } file_info;
 

@@ -146,6 +146,7 @@ page_fault (struct intr_frame *f) {
 	user = (f->error_code & PF_U) != 0;
 
 #ifdef VM
+	// printf ("before vm_try_handle_fault\n");
 	/* For project 3 and later. */
 	if (vm_try_handle_fault (f, fault_addr, user, write, not_present)) {
 		// 정당한 page fault, 처리해줘야 함.
@@ -162,8 +163,8 @@ page_fault (struct intr_frame *f) {
 			not_present ? "not present" : "rights violation",
 			write ? "writing" : "reading",
 			user ? "user" : "kernel");
-	// kill (f);
 	exit (-1);
+	// kill (f);
 }
 
 //! ------------------------------ Project 2 ------------------------------ !//
