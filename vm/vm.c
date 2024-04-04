@@ -10,12 +10,15 @@
 #include "include/userprog/process.h"
 #include <string.h>
 
+struct list frame_list;
+
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
 void
 vm_init (void) {
 	vm_anon_init ();
 	vm_file_init ();
+	list_init(&frame_list);
 #ifdef EFILESYS  /* For project 4 */
 	pagecache_init ();
 #endif
@@ -122,7 +125,10 @@ spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
 static struct frame *
 vm_get_victim (void) {
 	struct frame *victim = NULL;
-	 /* TODO: The policy for eviction is up to you. */
+	struct list_elem *f_elem;
+	/* TODO: The policy for eviction is up to you. */
+	f_elem = list_begin(&frame_list);
+	victim = list_entry(f_elem, struct frame, frame_elem);
 
 	return victim;
 }
@@ -131,25 +137,44 @@ vm_get_victim (void) {
  * Return NULL on error.*/
 static struct frame *
 vm_evict_frame (void) {
-	struct frame *victim UNUSED = vm_get_victim ();
+	struct frame *victim = vm_get_victim ();
 	/* TODO: swap out the victim and return the evicted frame. */
+	if(!victim)
+		return NULL;
 
-	return NULL;
+	if(!swap_out(victim->page))
+		return NULL;
+
+	list_remove(&victim->frame_elem);
+
+	victim->page = NULL;
+
+	return victim;
 }
 
 static struct frame *
 vm_get_frame (void) {
-	struct frame *frame = NULL;
+	struct frame 	*frame = NULL;
+	void 			*kva;
 
 	/* TODO: Fill this function. */
-	frame = (struct frame *)calloc(sizeof(struct frame), 1);
-	
-	frame->kva = palloc_get_page(PAL_USER | PAL_ZERO);
+	kva = palloc_get_page(PAL_USER | PAL_ZERO);
 
-	if(!frame->kva)	PANIC("ToDo");				// swap function
+	if(!kva)
+		frame = vm_evict_frame();
+	else
+	{
+		frame = (struct frame *)calloc(sizeof(struct frame), 1);
+		frame->kva = kva;
+	}
+
+	// frame->kva = kva;
 
 	ASSERT (frame != NULL);
 	ASSERT (frame->page == NULL);
+
+	list_push_back(&frame_list, &frame->frame_elem);
+
 	return frame;
 }
 
@@ -219,6 +244,8 @@ vm_do_claim_page (struct page *page) {
 	page->frame = frame;
 
 	writable = (uint64_t)page->va & PTE_W;
+
+	frame->kva = (uint64_t)frame->kva & ~0xfff;
 
 	if (!(pml4_get_page (t->pml4, (uint64_t)page->va & ~PGMASK) == NULL
 			&& pml4_set_page (t->pml4, (uint64_t)page->va & ~PGMASK, frame->kva, writable)))

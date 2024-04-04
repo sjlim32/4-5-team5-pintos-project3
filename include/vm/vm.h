@@ -64,8 +64,9 @@ struct page {
 
 /* The representation of "frame" */
 struct frame {
-	void *kva;
-	struct page *page;
+	void 				*kva;
+	struct page 		*page;
+	struct list_elem 	frame_elem;
 };
 
 /* The function table for page operations.
